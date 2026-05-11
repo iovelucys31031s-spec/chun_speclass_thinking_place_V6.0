@@ -1,0 +1,2230 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>想法討論板</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Iansui&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        serenity: '#92A8D1',
+                        quartz: '#F7CAC9',
+                    },
+                    fontFamily: {
+                        sans: ['Iansui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Iansui', sans-serif; }
+        .gradient-bg {
+            background: linear-gradient(180deg, #92A8D1 0%, #F7CAC9 100%);
+            min-height: 100vh;
+            background-attachment: fixed;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.2); }
+        ::-webkit-scrollbar-thumb { background: rgba(146, 168, 209, 0.8); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(146, 168, 209, 1); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+    </style>
+
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body class="gradient-bg text-gray-800">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // ==========================================
+        // Constants & Configs
+        // ==========================================
+        const DEFAULT_PWD = '0000';
+        const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'idea-board-app';
+
+        const DEFAULT_TUTORIAL_DATA = {
+            intro: "歡迎來到想法討論板！在這裡，你可以分享你的想法。以下是功能與按鈕的詳細說明：",
+            steps: [
+                { visible: true, color: 'blue', title: '第一點、觀看看板：', text: '在首頁點選你有興趣的看板，點擊 [觀看] 按鈕進去後可以看到大家的想法。' },
+                { visible: true, color: 'pink', title: '第二點、新增或修改：', text: '點選 [新增我的想法] 可以開始填寫。請記得，你只能修改自己名字的留言，如果有留言紀錄，按鈕會變成 [修改我的想法]。' },
+                { visible: true, color: 'blue', title: '第三點、多元輸入：', text: '回答問題時，你可以直接在文字框打字。或者，點選右下角的 [麥克風] 按鈕用語音說話，系統會幫你轉成文字；也可以點選 [相機] 按鈕直接上傳照片，用圖片來表達你的想法。' },
+                { visible: true, color: 'pink', title: '第四點、AI 小幫手：', text: '如果你輸入了很長的內容，可以點選 [魔法摘要]，AI 小幫手會幫直接幫你把重點濃縮。接著還可以點選 [轉成條列重點]，讓你的排版畫面更清楚易讀。' },
+                { visible: true, color: 'yellow', title: '第五點、手動修改：', text: 'AI 小幫手有時候會出錯，所以不管是用語音、拍照還是魔法摘要，最後一定要自己檢查，並在下方的文字框裡手動修改成你真正想說的話喔！' },
+                { visible: true, color: 'green', title: '第六點、完成送出：', text: '確認所有欄位都填寫完畢後，點選畫面最下方的 [送出我的討論單] 就完成囉！' }
+            ]
+        };
+
+        // 定義所有可用的模板及其預設欄位結構
+        const TEMPLATES = {
+            'BLANK': {
+                id: 'BLANK',
+                name: '空白模板 (單一欄位)',
+                description: '提供一個大區塊讓學生自由發揮，適合一般心得或自由書寫。',
+                layout: 'grid-cols-1',
+                defaultFields: [
+                    { id: 'F1', title: '我的想法', guide: '請在這裡自由寫下你的想法...' }
+                ]
+            },
+            'ORID': {
+                id: 'ORID',
+                name: 'O-R-I-D 焦點討論',
+                description: '透過客觀、反思、詮釋、決定四個層次，引導學生深入思考。',
+                layout: 'grid-cols-1 md:grid-cols-2',
+                defaultFields: [
+                    { id: 'O', title: 'O 客觀事實', guide: '發生了什麼事呢？請告訴大家你看到了什麼。' },
+                    { id: 'R', title: 'R 感受反應', guide: '遇到這些事情時，你覺得開心、難過還是驚訝呢？' },
+                    { id: 'I', title: 'I 詮釋意義', guide: '為什麼會有這樣的感覺？這讓你想到生活中的什麼事嗎？' },
+                    { id: 'D', title: 'D 做出決定', guide: '接下來，你想要做什麼樣的改變或行動呢？' }
+                ]
+            },
+            'T_CHART': {
+                id: 'T_CHART',
+                name: 'T圖 (優劣/對比)',
+                description: '適合用來做優缺點比較、正反方論述或兩個概念的對比。',
+                layout: 'grid-cols-1 md:grid-cols-2',
+                defaultFields: [
+                    { id: 'T1', title: '優點 / 正方', guide: '請列出這個主題的優點或支持的理由。' },
+                    { id: 'T2', title: '缺點 / 反方', guide: '請列出這個主題的缺點或反對的理由。' }
+                ]
+            },
+            'SWOT': {
+                id: 'SWOT',
+                name: 'S-W-O-T 分析',
+                description: '分析優勢、劣勢、機會與威脅，常用於專案或自我評估。',
+                layout: 'grid-cols-1 md:grid-cols-2',
+                defaultFields: [
+                    { id: 'S', title: 'S 優勢 (Strengths)', guide: '我們/我自己有哪些內部優勢？' },
+                    { id: 'W', title: 'W 劣勢 (Weaknesses)', guide: '我們/我自己有哪些需要改進的內部劣勢？' },
+                    { id: 'O', title: 'O 機會 (Opportunities)', guide: '外部環境有哪些對我們有利的機會？' },
+                    { id: 'T', title: 'T 威脅 (Threats)', guide: '外部環境有哪些可能對我們造成影響的威脅？' }
+                ]
+            },
+            'KWLH': {
+                id: 'KWLH',
+                name: 'K-W-L-H 學習單',
+                description: '探索已知、想知、已學、如何學，適合用於閱讀或探究學習前中後。',
+                layout: 'grid-cols-1 md:grid-cols-2',
+                defaultFields: [
+                    { id: 'K', title: 'K 已知 (What I Know)', guide: '關於這個主題，我已經知道些什麼？' },
+                    { id: 'W', title: 'W 想知 (What I Want to know)', guide: '關於這個主題，我還想知道些什麼？' },
+                    { id: 'L', title: 'L 已學 (What I Learned)', guide: '經過學習後，我學到了什麼新知識？' },
+                    { id: 'H', title: 'H 如何學 (How I can learn more)', guide: '如果想知道更多，我可以怎麼做或去哪裡找資料？' }
+                ]
+            },
+            'MANDALA': {
+                id: 'MANDALA',
+                name: '曼陀羅思考法 (九宮格)',
+                description: '由中心主題向外發散延伸思考，適合腦力激盪。',
+                layout: 'grid-cols-1 sm:grid-cols-3',
+                defaultFields: [
+                    { id: 'M1', title: '延伸想法 1', guide: '針對中心主題，寫下第一個聯想到的事物。' },
+                    { id: 'M2', title: '延伸想法 2', guide: '針對中心主題，寫下第二個聯想到的事物。' },
+                    { id: 'M3', title: '延伸想法 3', guide: '針對中心主題，寫下第三個聯想到的事物。' },
+                    { id: 'M4', title: '延伸想法 4', guide: '針對中心主題，寫下第四個聯想到的事物。' },
+                    { id: 'M5', title: '中心主題', guide: '請寫下這次討論的核心目標或主題。' },
+                    { id: 'M6', title: '延伸想法 5', guide: '針對中心主題，寫下第五個聯想到的事物。' },
+                    { id: 'M7', title: '延伸想法 6', guide: '針對中心主題，寫下第六個聯想到的事物。' },
+                    { id: 'M8', title: '延伸想法 7', guide: '針對中心主題，寫下第七個聯想到的事物。' },
+                    { id: 'M9', title: '延伸想法 8', guide: '針對中心主題，寫下第八個聯想到的事物。' }
+                ]
+            },
+            'CUSTOM': {
+                id: 'CUSTOM',
+                name: '自定義模板',
+                description: '老師可以自由決定需要幾個欄位，並自訂所有標題與引導語。',
+                layout: 'grid-cols-1 md:grid-cols-2',
+                defaultFields: [
+                    { id: 'C1', title: '自訂欄位 1', guide: '請輸入引導語...' }
+                ]
+            }
+        };
+
+        // 為每個模板設定不同難度與風格的預設提示詞 (不包含 CUSTOM)
+        const PROMPTS_CONFIG = {
+            'BLANK': {
+                '簡單': {
+                    '一般': { F1: '請簡單寫下你對這件事情的想法或心得。' },
+                    '有趣': { F1: '有什麼超酷的想法？快在這裡大聲說出來吧！' }
+                },
+                '中等': {
+                    '一般': { F1: '請具體描述你的看法，並說明為什麼會有這個想法。' },
+                    '有趣': { F1: '如果請你寫一篇微型報導，你會怎麼描述這件事？請寫下你的獨家觀點！' }
+                },
+                '困難': {
+                    '一般': { F1: '請深入論述你的觀點，並提出相關的例子或證據來支持你的想法。' },
+                    '有趣': { F1: '你是這個領域的專家了！請用專業又幽默的角度，為大家進行深入的剖析吧！' }
+                }
+            },
+            'ORID': {
+                '簡單': {
+                    '一般': {
+                        O: '發生了什麼事呢？請告訴大家你看到了什麼。',
+                        R: '遇到這些事情時，你覺得開心、難過還是驚訝呢？',
+                        I: '為什麼會有這樣的感覺？這讓你想到生活中的什麼事嗎？',
+                        D: '接下來，你想要做什麼樣的改變或行動呢？'
+                    },
+                    '有趣': {
+                        O: '哇！你在這之中發現了什麼大秘密？快跟我們分享！',
+                        R: '那個時候你的心情指數是幾分？是超級開心還是有點小緊張？',
+                        I: '腦力激盪時間！你覺得為什麼會這樣？有沒有覺得很像你遇過的事？',
+                        D: '下次如果再遇到，你的超級大絕招會是什麼？'
+                    }
+                },
+                '中等': {
+                    '一般': {
+                        O: '請回想一下，過程中你經歷了哪些重要的事件？',
+                        R: '針對這些事件，你當下的情緒和感受是什麼？喜歡或不喜歡哪裡？',
+                        I: '這些經驗，讓你聯想到自己真實生活中的哪些事情呢？',
+                        D: '綜合以上的想法，你在未來可以做出什麼決定？'
+                    },
+                    '有趣': {
+                        O: '現場連線報導！請回報一下你剛剛經歷了哪些刺激的轉折？',
+                        R: '你的心情雲霄飛車是怎麼開的？哪一個環節讓你最有感覺？',
+                        I: '偵探時間！你覺得這些事件，跟我們平常的生活有什麼神祕的關聯？',
+                        D: '帶著今天獲得的經驗值，你決定在現實生活中解鎖什麼新任務？'
+                    }
+                },
+                '困難': {
+                    '一般': {
+                        O: '請客觀描述你選擇的道路，以及過程中遭遇的具體狀況。',
+                        R: '這些遭遇帶給你什麼樣的情緒起伏？請具體說明你的感受。',
+                        I: '試著分析這些事件背後的意義，它與你過去的生活經驗有何連結？',
+                        D: '根據今天的反思，你會為自己訂定什麼樣的具體行動計畫？'
+                    },
+                    '有趣': {
+                        O: '請詳細回報你這場「人生模擬器」的關鍵里程碑。',
+                        R: '分享一下你的內心戲吧！哪個橋段讓你覺得最爽快，或是最扼腕？',
+                        I: '突破盲點！這些設定，是不是偷偷暗示了現實生活中的某些潛規則？',
+                        D: '經過這次的試煉，你打算如何在真實世界中，打出一場漂亮的好牌？'
+                    }
+                }
+            },
+            'T_CHART': {
+                '簡單': {
+                    '一般': { T1: '請寫下好的地方、優點。', T2: '請寫下不好的地方、缺點。' },
+                    '有趣': { T1: '這裡的超級亮點是什麼？誇獎一下吧！', T2: '哎呀，哪裡有扣分的地方？偷偷抱怨一下！' }
+                },
+                '中等': {
+                    '一般': { T1: '請列出支持這個論點的具體理由或優勢。', T2: '請列出反對這個論點的具體理由或劣勢。' },
+                    '有趣': { T1: '如果你是推銷員，你會怎麼吹捧它的優點？', T2: '如果你是挑剔的評審，你會指出哪些致命傷？' }
+                },
+                '困難': {
+                    '一般': { T1: '請進行深度的效益分析，並提供佐證支持正方觀點。', T2: '請進行深度的風險評估，並提供佐證支持反方觀點。' },
+                    '有趣': { T1: '請寫下能讓所有人信服的「必勝黃金法則」！', T2: '請精準點出可能導致翻船的「暗礁」在哪裡！' }
+                }
+            },
+            'SWOT': {
+                '簡單': {
+                    '一般': { S: '自己很棒的地方。', W: '自己需要進步的地方。', O: '外面有什麼好機會。', T: '外面有什麼危險。' },
+                    '有趣': { S: '你的超能力是什麼？', W: '你的氪星石(弱點)是什麼？', O: '天上掉下來什麼禮物？', T: '附近有什麼大魔王出沒？' }
+                },
+                '中等': {
+                    '一般': { S: '請列出我們內部的具體優勢與資源。', W: '請列出我們內部缺乏或需要改善的項目。', O: '外部環境中有哪些我們可以把握的趨勢？', T: '外部環境中有哪些可能影響我們的潛在風險？' },
+                    '有趣': { S: '盤點我方的神兵利器！', W: '我們裝備列裡面還缺了什麼？', O: '雷達顯示前方有寶箱！是什麼？', T: '警報響起！有什麼未知威脅正在靠近？' }
+                },
+                '困難': {
+                    '一般': { S: '請深度剖析核心競爭力與不可替代的優勢。', W: '請分析內部的結構性劣勢及資源瓶頸。', O: '請評估總體環境帶來的市場契機或政策紅利。', T: '請預測未來可能遭遇的競爭者威脅或環境巨變。' },
+                    '有趣': { S: '請寫下能讓我們稱霸江湖的獨門秘笈。', W: '找出我們防禦陣型中的致命阿基里斯腱。', O: '預言一下，下一個風口會出現在哪裡？', T: '若明天世界末日，會是因為哪個被忽略的危機？' }
+                }
+            },
+            'KWLH': {
+                '簡單': {
+                    '一般': { K: '我原本就知道的事。', W: '我還想知道的事。', L: '我今天學到的事。', H: '我可以怎麼學到更多。' },
+                    '有趣': { K: '我大腦庫存裡已經有的常識！', W: '我的好奇心雷達鎖定了什麼？', L: '今天吸收了什麼神仙知識？', H: '我要去哪裡繼續挖寶？' }
+                },
+                '中等': {
+                    '一般': { K: '針對此主題，請列出你已具備的背景知識。', W: '請寫下你在這個主題中想要探究的疑問。', L: '總結一下，透過學習你獲得了哪些新概念？', H: '列出你未來可以延伸學習的具體管道或方法。' },
+                    '有趣': { K: '在出發前，我的行囊裡裝了哪些知識裝備？', W: '在知識的迷宮裡，我想解開什麼謎題？', L: '闖關成功！我獲得了哪些稀有掉落物？', H: '下一關的入口在哪？我該怎麼走過去？' }
+                },
+                '困難': {
+                    '一般': { K: '請系統性陳述你對此議題既有的認知與假設。', W: '請提出具深度且值得驗證的研究問題。', L: '請歸納出學習歷程中的關鍵洞察與知識重建。', H: '請規劃一個可行的後續自主探究行動方案。' },
+                    '有趣': { K: '揭開底牌！請宣告你目前掌握的情報網。', W: '找出知識的斷層，你想向宇宙提出什麼終極拷問？', L: '認知升級！你如何推翻了自己原本的假設？', H: '若要成為這個領域的大師，你的修煉藍圖是什麼？' }
+                }
+            },
+            'MANDALA': {
+                '簡單': {
+                    '一般': {
+                        M5: '請寫下主要的主題。',
+                        M1: '想到的第一件事。', M2: '想到的第二件事。', M3: '想到的第三件事。', M4: '想到的第四件事。',
+                        M6: '想到的第五件事。', M7: '想到的第六件事。', M8: '想到的第七件事。', M9: '想到的第八件事。'
+                    },
+                    '有趣': {
+                        M5: '這次宇宙的中心是什麼？',
+                        M1: '第一顆環繞的行星！', M2: '第二顆環繞的行星！', M3: '第三顆環繞的行星！', M4: '第四顆環繞的行星！',
+                        M6: '第五顆環繞的行星！', M7: '第六顆環繞的行星！', M8: '第七顆環繞的行星！', M9: '第八顆環繞的行星！'
+                    }
+                },
+                '中等': {
+                    '一般': {
+                        M5: '請明確定義本次討論的核心議題。',
+                        M1: '延伸概念 1', M2: '延伸概念 2', M3: '延伸概念 3', M4: '延伸概念 4',
+                        M6: '延伸概念 5', M7: '延伸概念 6', M8: '延伸概念 7', M9: '延伸概念 8'
+                    },
+                    '有趣': {
+                        M5: '請在這裡安放我們的魔法石(核心主題)。',
+                        M1: '魔法陣的第一個符文', M2: '魔法陣的第二個符文', M3: '魔法陣的第三個符文', M4: '魔法陣的第四個符文',
+                        M6: '魔法陣的第五個符文', M7: '魔法陣的第六個符文', M8: '魔法陣的第七個符文', M9: '魔法陣的第八個符文'
+                    }
+                },
+                '困難': {
+                    '一般': {
+                        M5: '請確立本次系統性思考的核心錨點。',
+                        M1: '請提出第一個關鍵變數或面向。', M2: '請提出第二個關鍵變數或面向。', M3: '請提出第三個關鍵變數或面向。', M4: '請提出第四個關鍵變數或面向。',
+                        M6: '請提出第五個關鍵變數或面向。', M7: '請提出第六個關鍵變數或面向。', M8: '請提出第七個關鍵變數或面向。', M9: '請提出第八個關鍵變數或面向。'
+                    },
+                    '有趣': {
+                        M5: '鎖定目標！請輸入絕對座標(核心議題)。',
+                        M1: '展開第一道戰略防線', M2: '展開第二道戰略防線', M3: '展開第三道戰略防線', M4: '展開第四道戰略防線',
+                        M6: '展開第五道戰略防線', M7: '展開第六道戰略防線', M8: '展開第七道戰略防線', M9: '展開第八道戰略防線'
+                    }
+                }
+            }
+        };
+
+        const SUBJECTS = ['國語', '數學', '社會技巧', '學習策略', '溝通訓練'];
+        const GRADES = ['1年級', '2年級', '3年級', '4年級', '5年級', '6年級'];
+
+        // ==========================================
+        // Icons (Inline SVGs)
+        // ==========================================
+        const Icons = {
+            Speaker: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>,
+            Mic: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>,
+            Magic: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>,
+            List: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>,
+            Settings: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>,
+            Home: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>,
+            Trash: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>,
+            Unlock: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>,
+            Camera: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 011.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>,
+            Help: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>,
+            Bot: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 9h.01M15 9h.01"></path></svg>,
+            Layout: () => <svg className="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+        };
+
+        // ==========================================
+        // Tags Parser Component
+        // ==========================================
+        const ParsedText = ({ text }) => {
+            if (!text) return null;
+            const parts = text.split(/(\[[^\]]+\])/g);
+            return (
+                <React.Fragment>
+                    {parts.map((part, i) => {
+                        if (part.startsWith('[') && part.endsWith(']')) {
+                            const tag = part.slice(1, -1);
+                            switch(tag) {
+                                case '麥克風': return <span key={i} className="inline-flex items-center justify-center bg-serenity text-white w-7 h-7 rounded-full align-middle mx-1 shadow-sm" title="語音輸入"><Icons.Mic /></span>;
+                                case '相機': return <span key={i} className="inline-flex items-center justify-center bg-serenity text-white w-7 h-7 rounded-full align-middle mx-1 shadow-sm" title="圖片辨識"><Icons.Camera /></span>;
+                                case '魔法摘要': return <span key={i} className="inline-flex items-center gap-1 bg-quartz text-gray-800 px-2 py-0.5 rounded-xl text-sm font-bold mx-1 shadow-sm"><Icons.Magic /> 魔法摘要</span>;
+                                case '轉成條列重點': return <span key={i} className="inline-flex items-center gap-1 bg-quartz text-gray-800 px-2 py-0.5 rounded-xl text-sm font-bold mx-1 shadow-sm"><Icons.List /> 轉成條列重點</span>;
+                                case '新增我的想法': return <span key={i} className="inline-flex items-center gap-1 bg-serenity text-white px-2 py-0.5 rounded-xl text-sm font-bold mx-1 shadow-sm">➕ 新增我的想法</span>;
+                                case '修改我的想法': return <span key={i} className="inline-flex items-center gap-1 bg-serenity text-white px-2 py-0.5 rounded-xl text-sm font-bold mx-1 shadow-sm">📝 修改我的想法</span>;
+                                case '送出我的討論單': return <span key={i} className="inline-flex items-center gap-1 bg-serenity text-white px-2 py-0.5 rounded-xl text-sm font-bold mx-1 shadow-sm">送出我的討論單</span>;
+                                case '觀看': return <span key={i} className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded text-sm font-bold mx-1">觀看</span>;
+                                default: return <span key={i} className="font-bold text-serenity mx-1">{part}</span>;
+                            }
+                        }
+                        return <span key={i}>{part}</span>;
+                    })}
+                </React.Fragment>
+            );
+        };
+
+        const stripTagsForTTS = (text) => text.replace(/\[([^\]]+)\]/g, '$1');
+
+        // ==========================================
+        // Custom Dialog Systems
+        // ==========================================
+        const CustomDialog = ({ dialog, onClose }) => {
+            if (!dialog) return null;
+            const [inputValue, setInputValue] = useState(dialog.defaultValue || '');
+            
+            const handleConfirm = () => {
+                if (dialog.type === 'prompt') {
+                    if (dialog.onConfirm) dialog.onConfirm(inputValue);
+                } else {
+                    if (dialog.onConfirm) dialog.onConfirm();
+                }
+                onClose();
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm animate-fadeIn">
+                        <h3 className="text-xl font-bold mb-4 text-serenity border-b pb-2">
+                            {dialog.type === 'alert' ? '系統提示' : dialog.type === 'confirm' ? '請確認' : '請輸入資訊'}
+                        </h3>
+                        <p className="mb-6 text-gray-700 whitespace-pre-wrap leading-relaxed">{dialog.message}</p>
+                        {dialog.type === 'prompt' && (
+                            <input 
+                                type={dialog.inputType || 'text'} 
+                                className="w-full border-2 border-quartz focus:border-serenity outline-none p-3 rounded-xl mb-6 text-lg text-center" 
+                                value={inputValue} 
+                                onChange={e => setInputValue(e.target.value)} 
+                                autoFocus 
+                                onKeyDown={e => e.key === 'Enter' && handleConfirm()}
+                            />
+                        )}
+                        <div className="flex justify-end gap-3">
+                            {dialog.type !== 'alert' && (
+                                <button onClick={onClose} className="px-5 py-2 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors">取消</button>
+                            )}
+                            <button onClick={handleConfirm} className="px-5 py-2 rounded-xl font-bold text-white bg-serenity hover:bg-blue-500 transition-colors">確定</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ImportOptionsDialog = ({ isOpen, onClose, onSelectMode }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-lg animate-fadeIn border-t-8 border-t-serenity">
+                        <div className="flex justify-between items-center mb-3 border-b pb-2">
+                            <h3 className="text-lg font-bold text-serenity flex items-center gap-2">
+                                <Icons.Settings /> 請選擇匯入模式
+                            </h3>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 font-bold text-xl w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors">&times;</button>
+                        </div>
+                        <p className="text-gray-600 mb-4 text-xs">為避免誤刪資料，請選擇您希望系統如何處理這份匯入檔案：</p>
+                        
+                        <div className="grid grid-cols-1 gap-3">
+                            <div onClick={() => onSelectMode('merge')} className="cursor-pointer border-2 border-blue-200 hover:bg-blue-50 hover:border-blue-400 bg-white rounded-xl p-3 shadow-sm transition-all flex items-center gap-3">
+                                <div className="bg-blue-100 text-blue-600 w-10 h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm">
+                                    <Icons.List />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-blue-800 text-sm mb-0.5">1. 合併資料 (推薦)</h4>
+                                    <p className="text-[11px] text-gray-500 leading-tight">保留您目前的資料，僅將檔案內的看板與留言「新增」進來，是最安全的選擇。</p>
+                                </div>
+                            </div>
+                            
+                            <div onClick={() => onSelectMode('boards_only')} className="cursor-pointer border-2 border-green-200 hover:bg-green-50 hover:border-green-400 bg-white rounded-xl p-3 shadow-sm transition-all flex items-center gap-3">
+                                <div className="bg-green-100 text-green-600 w-10 h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm"><Icons.Layout /></div>
+                                <div>
+                                    <h4 className="font-bold text-green-800 text-sm mb-0.5">2. 僅匯入看板</h4>
+                                    <p className="text-[11px] text-gray-500 leading-tight">只匯入老師設計好的看板標題與引導語，<strong className="text-green-600">過濾掉所有的學生留言</strong>。適合匯入別人的模板。</p>
+                                </div>
+                            </div>
+
+                            <div onClick={() => onSelectMode('overwrite')} className="cursor-pointer border-2 border-red-200 hover:bg-red-50 hover:border-red-400 bg-white rounded-xl p-3 shadow-sm transition-all flex items-center gap-3 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 bg-red-500 text-white text-[9px] px-2 py-0.5 rounded-bl-lg font-bold">危險操作</div>
+                                <div className="bg-red-100 text-red-600 w-10 h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm"><Icons.Trash /></div>
+                                <div>
+                                    <h4 className="font-bold text-red-800 text-sm mb-0.5">3. 完全覆蓋</h4>
+                                    <p className="text-[11px] text-gray-500 leading-tight"><strong className="text-red-600">清空目前所有的看板與留言</strong>，完全被這份檔案取代。適用於要在新設備還原備份。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ImportGuideModal = ({ onClose }) => {
+            return (
+                <div className="flex items-center justify-center min-h-screen p-4 bg-black/60 fixed inset-0 z-[70] overflow-y-auto" onClick={onClose}>
+                    <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg w-full max-w-4xl relative animate-fadeIn my-8 max-h-[90vh] flex flex-col p-4 md:p-6 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex-shrink-0 flex justify-between items-center mb-4 border-b pb-3">
+                            <h2 className="text-xl md:text-2xl font-bold text-serenity flex items-center gap-2">
+                                <Icons.Help /> 檔案匯入模式指南
+                            </h2>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 font-bold text-2xl w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors">&times;</button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto space-y-4 text-sm md:text-base text-gray-700 leading-relaxed mb-6 pr-2">
+                            <p className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-blue-800">
+                                本系統提供三種靈活的匯入模式，無論是匯入 <b>JSON 完整系統備份</b> 或是 <b>CSV 歷史資料</b>，都可以依照您的需求彈性選擇：
+                            </p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+                                {/* Mode 1 */}
+                                <div className="border-2 border-blue-200 rounded-xl p-5 shadow-sm bg-white flex flex-col">
+                                    <div className="bg-blue-100 text-blue-600 w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto shadow-sm">
+                                        <Icons.List />
+                                    </div>
+                                    <h3 className="font-bold text-xl text-blue-800 mb-3 text-center border-b pb-2">1. 合併資料</h3>
+                                    <div className="text-sm text-gray-600 space-y-2 flex-1">
+                                        <p><span className="font-bold text-blue-700">運作方式：</span>保留系統目前所有的資料，並將檔案中不存在的看板與新留言「加進來」。</p>
+                                        <p><span className="font-bold text-blue-700">適用情境：</span></p>
+                                        <ul className="list-disc pl-5 space-y-1">
+                                            <li>把上學期的舊紀錄倒回系統保存。</li>
+                                            <li><span className="text-green-600 font-bold">最安全、不怕誤刪</span>的預設選擇。</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                {/* Mode 2 */}
+                                <div className="border-2 border-green-200 rounded-xl p-5 shadow-sm bg-white flex flex-col">
+                                    <div className="bg-green-100 text-green-600 w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto shadow-sm">
+                                        <Icons.Layout />
+                                    </div>
+                                    <h3 className="font-bold text-xl text-green-800 mb-3 text-center border-b pb-2">2. 僅匯入看板</h3>
+                                    <div className="text-sm text-gray-600 space-y-2 flex-1">
+                                        <p><span className="font-bold text-green-700">運作方式：</span>只匯入老師設計的「看板標題、模板種類、引導語」，<strong className="text-red-500">自動過濾掉所有的學生留言</strong>。</p>
+                                        <p><span className="font-bold text-green-700">適用情境：</span></p>
+                                        <ul className="list-disc pl-5 space-y-1">
+                                            <li>匯入其他老師分享的精美課程模板。</li>
+                                            <li>想沿用以前自己設計的看板，但要開給新班級使用(不需要舊生留言)時。</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                {/* Mode 3 */}
+                                <div className="border-2 border-red-200 rounded-xl p-5 shadow-sm bg-white flex flex-col relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 bg-red-500 text-white text-xs px-3 py-1 rounded-bl-lg font-bold shadow-sm">破壞性操作</div>
+                                    <div className="bg-red-100 text-red-600 w-12 h-12 rounded-full flex items-center justify-center mb-4 mx-auto shadow-sm">
+                                        <Icons.Trash />
+                                    </div>
+                                    <h3 className="font-bold text-xl text-red-800 mb-3 text-center border-b pb-2">3. 完全覆蓋</h3>
+                                    <div className="text-sm text-gray-600 space-y-2 flex-1">
+                                        <p><span className="font-bold text-red-700">運作方式：</span><strong className="text-red-600">清空目前系統上的所有看板與所有留言</strong>，接著完全被這份檔案的內容取代。</p>
+                                        <p><span className="font-bold text-red-700">適用情境：</span></p>
+                                        <ul className="list-disc pl-5 space-y-1">
+                                            <li>更換新電腦，需要完整還原之前的系統備份檔時。</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex-shrink-0 pt-4 border-t text-center">
+                            <button type="button" onClick={onClose} className="bg-serenity text-white hover:bg-blue-500 px-8 py-3 rounded-xl font-bold shadow-sm transition-all transform active:scale-95 text-lg">我了解了，關閉說明</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // Utilities & TTS Manager
+        // ==========================================
+        const generateId = () => Math.random().toString(36).substr(2, 9);
+
+        const withTimeout = (promise, ms = 8000) => {
+            return Promise.race([
+                promise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('伺服器沒有回應（連線逾時）。這通常是因為您忘記在 Firebase 控制台點擊「建立資料庫 (Create Database)」！請回控制台建立 Firestore 資料庫後再試。')), ms))
+            ]);
+        };
+
+        const TTS = {
+            voiceURI: localStorage.getItem('ttsVoiceURI') || '',
+            dict: JSON.parse(localStorage.getItem('ttsDict') || '{}'),
+            
+            setVoice: function(uri) {
+                this.voiceURI = uri;
+                localStorage.setItem('ttsVoiceURI', uri);
+            },
+            
+            setDict: function(newDict) {
+                this.dict = newDict;
+                localStorage.setItem('ttsDict', JSON.stringify(newDict));
+            },
+            
+            speak: function(text) {
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel(); 
+                    
+                    let correctedText = text;
+                    for (const [orig, pron] of Object.entries(this.dict)) {
+                        correctedText = correctedText.split(orig).join(pron);
+                    }
+
+                    const utterance = new SpeechSynthesisUtterance(correctedText);
+                    utterance.lang = 'zh-TW';
+                    
+                    if (this.voiceURI) {
+                        const voices = window.speechSynthesis.getVoices();
+                        const selectedVoice = voices.find(v => v.voiceURI === this.voiceURI);
+                        if (selectedVoice) utterance.voice = selectedVoice;
+                    }
+                    window.speechSynthesis.speak(utterance);
+                }
+            },
+            stop: function() {
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                }
+            }
+        };
+
+        const parseCSV = (text) => {
+            let p = '', row = [''], ret = [row], i = 0, r = 0, s = !0, l;
+            for (l of text) {
+                if ('"' === l) {
+                    if (s && l === p) row[i] += l;
+                    s = !s;
+                } else if (',' === l && s) l = row[++i] = '';
+                else if ('\n' === l && s) {
+                    if ('\r' === p) row[i] = row[i].slice(0, -1);
+                    row = ret[++r] = [l = '']; i = 0;
+                } else row[i] += l;
+                p = l;
+            }
+            return ret.filter(r => r.length > 1 || r[0].trim() !== '');
+        };
+
+        const compressImage = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = event => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const MAX_WIDTH = 600;
+                        const MAX_HEIGHT = 600;
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+                        } else {
+                            if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+                        }
+                        canvas.width = width; canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.6)); 
+                    };
+                    img.onerror = error => reject(error);
+                };
+                reader.onerror = error => reject(error);
+            });
+        };
+
+        // ==========================================
+        // Gemini API Interaction
+        // ==========================================
+        const generateGeminiContent = async (payload, apiKey) => {
+            const cleanKey = apiKey?.trim();
+            if (!cleanKey) throw new Error("請先請老師在後台設定有效的 AI 金鑰 (API Key)");
+
+            const tryModel = async (modelName) => {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${cleanKey}`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.error) throw new Error(data.error.message);
+                if (!data.candidates || data.candidates.length === 0) throw new Error("AI 無回傳結果");
+                return data.candidates[0].content.parts[0].text;
+            };
+
+            try { return await tryModel('gemini-1.5-flash'); } 
+            catch (err1) {
+                try { return await tryModel('gemini-2.5-flash-preview-09-2025'); } 
+                catch (err2) { throw new Error(`AI 魔法執行失敗！\n\n錯誤原因：${err1.message}\n\n(提示：請確認您的 API Key 是否正確，或是否在 Google AI Studio 有受到權限限制)`); }
+            }
+        };
+
+        const callGeminiText = async (promptText, apiKey) => {
+            return await generateGeminiContent({ contents: [{ parts: [{ text: promptText }] }] }, apiKey);
+        };
+
+        const getSummary = async (text, apiKey) => {
+            const prompt = `請幫我將以下學生的心得轉換為一段通順的短文摘要，去除冗言贅字（如：然後、就），保留核心意義，讓語氣更精煉。請以學生的第一人稱語氣撰寫，不要加入額外的解釋或問候語。\n\n原始內容：\n${text}`;
+            return await callGeminiText(prompt, apiKey);
+        };
+
+        const getBullets = async (text, apiKey) => {
+            const prompt = `請將以下摘要轉換為 1~3 點的條列式重點，幫助學生學習抓取關鍵字。請直接輸出重點，不要有其他廢話。\n\n原始摘要：\n${text}`;
+            return await callGeminiText(prompt, apiKey);
+        };
+
+        // ==========================================
+        // UI Components
+        // ==========================================
+        const Button = ({ children, onClick, variant = 'primary', className = '', disabled=false, type="button", title="" }) => {
+            const baseStyle = "flex items-center justify-center px-4 py-2 rounded-xl font-bold transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm";
+            const variants = {
+                primary: "bg-serenity text-white hover:bg-blue-500",
+                secondary: "bg-quartz text-gray-800 hover:bg-pink-300",
+                outline: "border-2 border-serenity text-serenity hover:bg-serenity hover:text-white",
+                danger: "bg-red-400 text-white hover:bg-red-500"
+            };
+            return (
+                <button type={type} onClick={onClick} disabled={disabled} title={title} className={`${baseStyle} ${variants[variant]} ${className}`}>
+                    {children}
+                </button>
+            );
+        };
+
+        const Card = ({ children, className = '' }) => (
+            <div className={`bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg p-6 ${className}`}>
+                {children}
+            </div>
+        );
+
+        // ==========================================
+        // Teacher Template Guide Modal Component
+        // ==========================================
+        const TeacherTemplateGuideModal = ({ onClose }) => {
+            return (
+                <div className="flex items-center justify-center min-h-screen p-4 bg-black/60 fixed inset-0 z-[70] overflow-y-auto" onClick={onClose}>
+                    <Card className="w-full max-w-5xl relative animate-fadeIn my-8 max-h-[90vh] flex flex-col p-4 md:p-6 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex-shrink-0 flex justify-between items-center mb-4 border-b pb-3">
+                            <h2 className="text-xl md:text-2xl font-bold text-serenity flex items-center gap-2">
+                                <Icons.Layout /> 平台模板介紹
+                            </h2>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 font-bold text-xl w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors">&times;</button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto space-y-6 text-sm md:text-base text-gray-700 leading-relaxed mb-6 pr-2 custom-scrollbar">
+                            <p className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-blue-800">
+                                <b>模板</b>決定了學生在回答時會看到幾個填寫區塊，以及畫面的排列方式。您可以根據不同的教學目標選擇合適的模板，並在建立看板時進一步修改每個區塊的「標題」與「引導語」。
+                            </p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Blank Template */}
+                                <div className="border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                                    <h3 className="font-bold text-lg text-serenity mb-2 border-b pb-2">空白模板</h3>
+                                    <div className="mb-4 text-sm text-gray-600 space-y-1">
+                                        <p><span className="font-bold text-gray-700">內容概述：</span>提供單一個大面積的文字輸入區塊。</p>
+                                        <p><span className="font-bold text-gray-700">建議使用：</span>適合一般心得寫作、自由書寫、或是沒有特定結構限制的長篇反思。</p>
+                                    </div>
+                                    <div className="mt-auto bg-gray-100 rounded-lg p-3 h-32 flex items-center justify-center border-2 border-dashed border-gray-300">
+                                        <div className="bg-white rounded p-2 text-center text-xs text-gray-400 w-full h-full flex items-center justify-center shadow-sm">單一大填寫區塊</div>
+                                    </div>
+                                </div>
+
+                                {/* ORID Template */}
+                                <div className="border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                                    <h3 className="font-bold text-lg text-serenity mb-2 border-b pb-2">O-R-I-D 焦點討論</h3>
+                                    <div className="mb-4 text-sm text-gray-600 space-y-1">
+                                        <p><span className="font-bold text-gray-700">內容概述：</span>提供四個維度，分別為客觀事實(O)、感受反應(R)、詮釋意義(I)與做出決定(D)。</p>
+                                        <p><span className="font-bold text-gray-700">建議使用：</span>適合用於活動結束後的反思引導，幫助學生有層次地梳理經驗並導向未來行動。</p>
+                                    </div>
+                                    <div className="mt-auto bg-gray-100 rounded-lg p-3 h-32 flex items-center justify-center border-2 border-dashed border-gray-300">
+                                        <div className="grid grid-cols-2 gap-2 w-full h-full">
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-blue-400 flex items-center justify-center">O 客觀事實</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-pink-400 flex items-center justify-center">R 感受反應</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-purple-400 flex items-center justify-center">I 詮釋意義</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-green-400 flex items-center justify-center">D 做出決定</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* SWOT Template */}
+                                <div className="border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                                    <h3 className="font-bold text-lg text-serenity mb-2 border-b pb-2">S-W-O-T 分析</h3>
+                                    <div className="mb-4 text-sm text-gray-600 space-y-1">
+                                        <p><span className="font-bold text-gray-700">內容概述：</span>劃分為內部條件的優勢(S)、劣勢(W)，以及外部環境的機會(O)與威脅(T)四個區塊。</p>
+                                        <p><span className="font-bold text-gray-700">建議使用：</span>適用於專案計畫前的評估、團體/個人自我檢視，或是分析特定事件的利弊得失。</p>
+                                    </div>
+                                    <div className="mt-auto bg-gray-100 rounded-lg p-3 h-32 flex items-center justify-center border-2 border-dashed border-gray-300">
+                                        <div className="grid grid-cols-2 gap-2 w-full h-full">
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-indigo-400 flex items-center justify-center">S 優勢</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-red-400 flex items-center justify-center">W 劣勢</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-yellow-500 flex items-center justify-center">O 機會</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-orange-400 flex items-center justify-center">T 威脅</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* KWLH Template */}
+                                <div className="border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                                    <h3 className="font-bold text-lg text-serenity mb-2 border-b pb-2">K-W-L-H 學習單</h3>
+                                    <div className="mb-4 text-sm text-gray-600 space-y-1">
+                                        <p><span className="font-bold text-gray-700">內容概述：</span>包含已知(K)、想知(W)、已學(L)與如何學(H)四個探索階段。</p>
+                                        <p><span className="font-bold text-gray-700">建議使用：</span>非常適合搭配閱讀理解、專題探究課程，用來記錄學習前、中、後的歷程與知識建構。</p>
+                                    </div>
+                                    <div className="mt-auto bg-gray-100 rounded-lg p-3 h-32 flex items-center justify-center border-2 border-dashed border-gray-300">
+                                        <div className="grid grid-cols-2 gap-2 w-full h-full">
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-teal-500 flex items-center justify-center">K 已知</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-cyan-500 flex items-center justify-center">W 想知</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-emerald-500 flex items-center justify-center">L 已學</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-sky-500 flex items-center justify-center">H 如何學</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* T-Chart Template */}
+                                <div className="border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                                    <h3 className="font-bold text-lg text-serenity mb-2 border-b pb-2">T圖 (對比/優劣)</h3>
+                                    <div className="mb-4 text-sm text-gray-600 space-y-1">
+                                        <p><span className="font-bold text-gray-700">內容概述：</span>提供左右對稱的兩個文字區塊，形成強烈對比版面。</p>
+                                        <p><span className="font-bold text-gray-700">建議使用：</span>適合用來進行正反方意見論述、優缺點比較、或是比較兩個不同概念的差異。</p>
+                                    </div>
+                                    <div className="mt-auto bg-gray-100 rounded-lg p-3 h-32 flex items-center justify-center border-2 border-dashed border-gray-300">
+                                        <div className="grid grid-cols-2 gap-2 w-full h-full">
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-gray-500 flex items-center justify-center border-r-4 border-gray-200">左方觀點</div>
+                                            <div className="bg-white rounded shadow-sm text-xs font-bold text-gray-500 flex items-center justify-center">右方觀點</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Mandala Template */}
+                                <div className="border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                                    <h3 className="font-bold text-lg text-serenity mb-2 border-b pb-2">曼陀羅思考法 (九宮格)</h3>
+                                    <div className="mb-4 text-sm text-gray-600 space-y-1">
+                                        <p><span className="font-bold text-gray-700">內容概述：</span>畫面中央為核心主題，周圍環繞八個延伸區塊，構成 3x3 網格。</p>
+                                        <p><span className="font-bold text-gray-700">建議使用：</span>適合用於腦力激盪、創意發想，引導學生從單一中心點向外水平擴散思考。</p>
+                                    </div>
+                                    <div className="mt-auto bg-gray-100 rounded-lg p-3 h-32 flex items-center justify-center border-2 border-dashed border-gray-300">
+                                        <div className="grid grid-cols-3 gap-1 w-full h-full">
+                                            {[1,2,3,4,5,6,7,8,9].map(i => (
+                                                <div key={i} className={`rounded shadow-sm text-[10px] flex items-center justify-center text-center ${i === 5 ? 'bg-serenity text-white font-bold' : 'bg-white text-gray-400'}`}>
+                                                    {i === 5 ? '中心主題' : `延伸`}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Custom Template */}
+                                <div className="border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow md:col-span-2 flex flex-col">
+                                    <h3 className="font-bold text-lg text-serenity mb-2 border-b pb-2">自定義模板</h3>
+                                    <div className="text-sm text-gray-600 space-y-1">
+                                        <p><span className="font-bold text-gray-700">內容概述：</span>老師可自由決定提供 1 到 9 個不等的填寫欄位。</p>
+                                        <p><span className="font-bold text-gray-700">建議使用：</span>當現有的框架不符合特定教學活動時，老師可以完全客製化每一個欄位的數量與引導語，系統會自動幫您調整最佳排版。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex-shrink-0 pt-4 border-t text-center">
+                            <Button type="button" onClick={onClose} className="px-8 py-3 text-lg">我了解了，關閉介紹</Button>
+                        </div>
+                    </Card>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // Tutorial Modal Component
+        // ==========================================
+        const TutorialModal = ({ onClose, user, tutorialData }) => {
+            const tut = typeof tutorialData === 'string' ? JSON.parse(tutorialData) : tutorialData;
+            const visibleSteps = tut.steps.filter(s => s.visible !== false);
+            const fullTextForReading = `${tut.intro}。${visibleSteps.map(s => `${s.title}。${s.text}`).join('。')}`;
+
+            useEffect(() => { return () => TTS.stop(); }, []);
+
+            const completeTutorial = () => {
+                TTS.stop(); 
+                if (user && user !== 'admin') localStorage.setItem(`tut_${user}`, '1');
+                onClose();
+            };
+
+            const bgColors = {
+                blue: 'bg-blue-50 border-blue-100',
+                pink: 'bg-pink-50 border-pink-100',
+                yellow: 'bg-yellow-50 border-yellow-100 text-yellow-800',
+                green: 'bg-green-50 border-green-100'
+            };
+
+            return (
+                <div className="flex items-center justify-center min-h-screen p-4 bg-black/60 fixed inset-0 z-[60] overflow-y-auto" onClick={completeTutorial}>
+                    <Card className="w-full max-w-2xl relative animate-fadeIn my-8 max-h-[90vh] flex flex-col p-4 md:p-6 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex-shrink-0 flex justify-between items-center mb-4 border-b pb-3">
+                            <h2 className="text-xl md:text-2xl font-bold text-serenity flex items-center gap-2">
+                                <Icons.Help /> 新手指南
+                            </h2>
+                            <div className="flex items-center gap-2">
+                                <button 
+                                    type="button"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); TTS.speak(stripTagsForTTS(fullTextForReading)); }} 
+                                    className="text-gray-400 hover:text-serenity p-2 bg-gray-100 rounded-full transition-colors focus:outline-none" 
+                                    title="全部朗讀"
+                                ><Icons.Speaker /></button>
+                                <button onClick={completeTutorial} className="text-gray-400 hover:text-gray-600 font-bold text-2xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100">&times;</button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto space-y-4 text-sm md:text-base text-gray-700 leading-relaxed mb-6 pr-2 custom-scrollbar">
+                            <p className="font-bold text-lg text-serenity"><ParsedText text={tut.intro} /></p>
+                            {visibleSteps.map((step, idx) => (
+                                <div key={idx} className={`p-3 rounded-lg border ${bgColors[step.color]}`}>
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="leading-relaxed">
+                                            <b>{step.title}</b> <ParsedText text={step.text} />
+                                        </div>
+                                        <button 
+                                            type="button"
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); TTS.speak(stripTagsForTTS(`${step.title}。${step.text}`)); }}
+                                            className="text-gray-400 hover:text-serenity p-1.5 flex-shrink-0 rounded-full bg-white/50 hover:bg-white shadow-sm transition-colors focus:outline-none" 
+                                            title="單獨朗讀此步驟"
+                                        ><Icons.Speaker /></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex-shrink-0 pt-2 border-t">
+                            <Button type="button" onClick={completeTutorial} className="w-full py-3 text-lg">我了解了，開始使用</Button>
+                        </div>
+                    </Card>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // Form Section (The Core AI Scaffold)
+        // ==========================================
+        const FieldSection = ({ field, value, onChange, apiKey, showAlert }) => {
+            const [isRecording, setIsRecording] = useState(false);
+            const [loading, setLoading] = useState(false);
+            const [loadingType, setLoadingType] = useState(''); 
+            const recognitionRef = useRef(null);
+            const valueRef = useRef(value);
+            const onChangeRef = useRef(onChange);
+            
+            useEffect(() => { valueRef.current = value; onChangeRef.current = onChange; }, [value, onChange]);
+
+            useEffect(() => {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (SpeechRecognition) {
+                    const recognition = new SpeechRecognition();
+                    recognition.continuous = true; recognition.interimResults = true; recognition.lang = 'zh-TW';
+                    recognition.onresult = (event) => {
+                        let finalTranscript = '';
+                        for (let i = event.resultIndex; i < event.results.length; ++i) {
+                            if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+                        }
+                        if (finalTranscript) {
+                            const currentVal = valueRef.current;
+                            const newVal = currentVal.level1 + finalTranscript;
+                            onChangeRef.current({ ...currentVal, level1: newVal, level3: newVal });
+                        }
+                    };
+                    recognition.onerror = (event) => { console.error("Speech error", event.error); setIsRecording(false); };
+                    recognition.onend = () => { setIsRecording(false); };
+                    recognitionRef.current = recognition;
+                }
+            }, []);
+
+            const toggleRecording = () => {
+                if (isRecording) { recognitionRef.current?.stop(); setIsRecording(false); } 
+                else {
+                    if (recognitionRef.current) { recognitionRef.current.start(); setIsRecording(true); } 
+                    else { showAlert("您的瀏覽器目前不支援語音輸入功能。"); }
+                }
+            };
+
+            const handleTextChange = (e, level) => {
+                const currentVal = valueRef.current;
+                let updated = { ...currentVal, [level]: e.target.value };
+                if (level === 'level1' && currentVal.stage === 'raw') updated.level3 = e.target.value;
+                onChange(updated);
+            };
+
+            const handleImageUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                setLoading(true); setLoadingType('image');
+                try {
+                    const compressedBase64 = await compressImage(file);
+                    onChangeRef.current({ ...valueRef.current, imageUrl: compressedBase64 });
+                } catch (err) { showAlert("圖片上傳失敗：" + err.message); } 
+                finally { setLoading(false); setLoadingType(''); e.target.value = ''; }
+            };
+
+            const handleSummary = async () => {
+                if (!apiKey?.trim()) return showAlert("老師尚未設定 AI 金鑰，無法使用魔法摘要。");
+                if (!value.level1.trim()) return showAlert("請先輸入內容喔！");
+                setLoading(true); setLoadingType('summary');
+                try {
+                    const summary = await getSummary(value.level1, apiKey);
+                    onChange({ ...value, level2: summary, level3: summary, stage: 'summary' });
+                } catch (e) { showAlert("魔法摘要失敗：" + e.message); }
+                setLoading(false); setLoadingType('');
+            };
+
+            const handleBullets = async () => {
+                if (!apiKey?.trim()) return showAlert("老師尚未設定 AI 金鑰，無法使用重點條列。");
+                if (!value.level2.trim() && !value.level1.trim()) return showAlert("沒有內容可以轉條列！");
+                setLoading(true); setLoadingType('bullet');
+                try {
+                    const bullets = await getBullets(value.level2 || value.level1, apiKey);
+                    onChange({ ...value, level2: bullets, level3: bullets, stage: 'bullet' });
+                } catch (e) { showAlert("重點條列失敗：" + e.message); }
+                setLoading(false); setLoadingType('');
+            };
+
+            return (
+                <div className="mb-6 p-4 border-2 border-serenity/30 rounded-xl bg-white shadow-sm">
+                    <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-bold text-lg text-serenity flex items-center gap-2">
+                            <span className="bg-serenity text-white rounded-full min-w-[2rem] px-2 h-8 flex items-center justify-center whitespace-nowrap shadow-sm">{field.id.length > 2 ? field.id.substring(0,2) : field.id}</span>
+                            {field.title}
+                        </h3>
+                        <button onClick={() => TTS.speak(field.guide)} className="text-gray-400 hover:text-serenity p-1" title="朗讀引導語"><Icons.Speaker /></button>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-4 ml-10">{field.guide}</p>
+
+                    <div className="ml-10 space-y-4">
+                        <div className={`transition-all ${value.stage !== 'raw' ? 'opacity-70' : ''}`}>
+                            <label className="block text-xs font-bold text-gray-400 mb-1">
+                                {value.stage !== 'raw' ? '原始想法 (已鎖定)' : '請輸入或錄音您的想法'}
+                            </label>
+                            <div className="relative">
+                                <textarea
+                                    className={`w-full p-3 pb-14 rounded-lg border-2 ${value.stage === 'raw' ? 'border-serenity focus:ring-2 focus:ring-serenity focus:border-transparent' : 'border-gray-200 bg-gray-50'} resize-y min-h-[120px]`}
+                                    placeholder="點擊麥克風說話、上傳照片，或直接在這裡打字..."
+                                    value={value.level1}
+                                    onChange={(e) => handleTextChange(e, 'level1')}
+                                    readOnly={value.stage !== 'raw'}
+                                />
+                                {value.stage === 'raw' && (
+                                    <div className="absolute bottom-3 right-3 flex gap-2">
+                                        <label className={`p-2 rounded-full text-white shadow-md transition-colors cursor-pointer flex items-center justify-center ${loading ? 'bg-gray-400' : 'bg-serenity hover:bg-blue-500'}`} title="上傳照片">
+                                            {loading && loadingType === 'image' ? <span className="text-xs px-2 font-bold animate-pulse">處理中</span> : <Icons.Camera />}
+                                            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" disabled={loading} />
+                                        </label>
+                                        <button onClick={toggleRecording} className={`p-2 rounded-full text-white shadow-md transition-colors ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-serenity hover:bg-blue-500'}`} title={isRecording ? "停止錄音" : "語音輸入"} disabled={loading}>
+                                            <Icons.Mic />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            {value.imageUrl && (
+                                <div className="mt-3 relative inline-block">
+                                    <img src={value.imageUrl} alt="上傳的圖片" className="max-h-60 rounded-lg shadow-sm border border-gray-200" />
+                                    {value.stage === 'raw' && (
+                                        <button onClick={() => onChange({ ...value, imageUrl: null })} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg hover:bg-red-600 font-bold" title="移除照片" type="button">X</button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {value.stage === 'raw' && value.level1.trim().length > 0 && (
+                            <div className="flex gap-2 justify-end mt-2">
+                                <Button onClick={handleSummary} variant={apiKey?.trim() ? "secondary" : "outline"} className={`text-sm py-1 min-w-[120px] ${!apiKey?.trim() ? 'opacity-50 cursor-not-allowed border-gray-300 text-gray-400' : ''}`} disabled={loading || !apiKey?.trim()} title={!apiKey?.trim() ? "老師尚未開放 AI 功能" : ""}>
+                                    {loading && loadingType === 'summary' ? <span className="animate-pulse">✨ AI 處理中...</span> : <><Icons.Magic /> 🌟 魔法摘要 {!apiKey?.trim() && '(未開放)'}</>}
+                                </Button>
+                            </div>
+                        )}
+
+                        {value.stage !== 'raw' && (
+                            <div className="mt-4 p-4 bg-pink-50 border-2 border-quartz rounded-lg relative animate-fadeIn shadow-inner">
+                                <div className="absolute -top-3 left-4 bg-quartz px-3 py-0.5 text-xs font-bold rounded-full text-gray-700 shadow-sm border border-pink-300">
+                                    {value.stage === 'summary' ? '✨ AI 魔法摘要 (請手動校對)' : '🎯 AI 重點條列 (請手動校對)'}
+                                </div>
+                                <p className="text-xs text-gray-500 mb-2 mt-2 font-bold">
+                                    💡 這是 AI 幫你整理的內容，可以直接在這裡修改成你真正想說的話喔！
+                                </p>
+                                <textarea
+                                    className="w-full p-3 rounded-lg border-2 border-quartz focus:ring-2 focus:ring-pink-400 outline-none resize-y min-h-[100px] bg-white text-gray-800"
+                                    value={value.level3}
+                                    onChange={(e) => handleTextChange(e, 'level3')}
+                                />
+                                <div className="flex gap-2 justify-end mt-3">
+                                    <Button onClick={() => onChange({ ...value, stage: 'raw', level3: value.level1 })} variant="outline" className="text-xs py-1 px-3 border-gray-400 text-gray-500 hover:bg-gray-100 bg-white">重來</Button>
+                                    {value.stage === 'summary' && (
+                                        <Button onClick={handleBullets} variant={apiKey?.trim() ? "secondary" : "outline"} className={`text-xs py-1 px-3 min-w-[120px] ${!apiKey?.trim() ? 'opacity-50 cursor-not-allowed border-gray-300 text-gray-400' : ''}`} disabled={loading || !apiKey?.trim()} title={!apiKey?.trim() ? "老師尚未開放 AI 功能" : ""}>
+                                            {loading && loadingType === 'bullet' ? <span className="animate-pulse">✨ AI 處理中...</span> : <><Icons.List /> 🎯 轉成條列重點 {!apiKey?.trim() && '(未開放)'}</>}
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // View Components
+        // ==========================================
+        const LoginView = ({ setUser, setView, setShowTutorial, adminPwd, showAlert }) => {
+            const [name, setName] = useState('');
+            const [pwd, setPwd] = useState('');
+            const [showAdminLogin, setShowAdminLogin] = useState(false);
+
+            const handleStudentLogin = () => {
+                if (!name.trim()) return showAlert('請輸入姓名！');
+                setUser(name.trim()); setView('dashboard');
+                if (!localStorage.getItem(`tut_${name.trim()}`)) setShowTutorial(true);
+            };
+
+            const handleAdminLogin = () => {
+                if (pwd === adminPwd) { setUser('admin'); setView('admin'); } 
+                else { showAlert('密碼錯誤！請重新輸入。'); }
+            };
+
+            return (
+                <div className="flex items-center justify-center min-h-screen p-4">
+                    <Card className="w-full max-w-md text-center border-t-8 border-t-serenity shadow-2xl">
+                        <h1 className="text-3xl font-bold text-serenity mb-2 mt-4">想法討論板</h1>
+                        <p className="text-gray-500 mb-8 font-bold">用多元的框架，整理你的想法</p>
+                        {!showAdminLogin ? (
+                            <div className="space-y-4">
+                                <input type="text" className="w-full p-4 border-2 border-quartz rounded-xl text-center text-xl focus:outline-none focus:border-serenity font-bold text-gray-700 bg-gray-50 focus:bg-white transition-colors" placeholder="請輸入你的名字" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleStudentLogin()} />
+                                <Button onClick={handleStudentLogin} className="w-full text-lg py-4 shadow-md">進入討論板</Button>
+                                <button onClick={() => setShowAdminLogin(true)} className="text-sm text-gray-400 mt-4 hover:text-gray-600 underline font-bold">我是老師 (後台登入)</button>
+                            </div>
+                        ) : (
+                            <div className="space-y-4 animate-fadeIn">
+                                <input type="password" className="w-full p-4 border-2 border-gray-300 rounded-xl text-center text-xl focus:outline-none focus:border-gray-500 font-bold bg-gray-50 focus:bg-white transition-colors" placeholder="請輸入後台密碼" value={pwd} onChange={e => setPwd(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdminLogin()} />
+                                <Button onClick={handleAdminLogin} variant="secondary" className="w-full text-lg py-4 shadow-md bg-gray-700 text-white hover:bg-gray-800 border-none">登入後台</Button>
+                                <button onClick={() => setShowAdminLogin(false)} className="text-sm text-gray-400 mt-4 hover:text-gray-600 underline font-bold">返回學生登入</button>
+                            </div>
+                        )}
+                    </Card>
+                </div>
+            );
+        };
+
+        const DashboardView = ({ user, boards, setCurrentBoard, setView, setShowTutorial, setUser, setMagicUnlocked }) => {
+            const [filterSubj, setFilterSubj] = useState('');
+            const [filterGrade, setFilterGrade] = useState('');
+
+            const filteredBoards = boards.filter(b => {
+                if (filterSubj && !b.subjects.includes(filterSubj)) return false;
+                if (filterGrade && !b.grades.includes(filterGrade)) return false;
+                return true;
+            });
+
+            return (
+                <div className="max-w-4xl mx-auto p-4 pt-8 pb-20">
+                    <div className="flex justify-between items-center mb-8">
+                        <div>
+                            <h1 className="text-3xl font-bold text-white drop-shadow-md">看板大廳</h1>
+                            <p className="text-white/90 font-bold mt-1">哈囉，{user}！選擇一個主題開始吧。</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <Button onClick={() => setShowTutorial(true)} variant="outline" className="bg-white/50 border-white text-white hover:bg-white hover:text-serenity shadow-sm"><Icons.Help /> 新手指南</Button>
+                            <Button onClick={() => {setUser(null); setMagicUnlocked(false);}} variant="secondary" className="bg-white/50 shadow-sm border-none">登出</Button>
+                        </div>
+                    </div>
+
+                    <Card className="mb-6 bg-white/80 border border-white/40 shadow-md">
+                        <div className="flex flex-wrap gap-4 items-center">
+                            <span className="font-bold text-gray-700 bg-white/50 px-2 py-1 rounded">🔍 篩選看板：</span>
+                            <select value={filterSubj} onChange={e => setFilterSubj(e.target.value)} className="p-2 rounded-lg border-2 border-quartz bg-white outline-none font-bold text-gray-600 focus:border-serenity min-w-[120px]">
+                                <option value="">所有科目</option>
+                                {Array.from(new Set(boards.flatMap(b => b.subjects))).map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)} className="p-2 rounded-lg border-2 border-quartz bg-white outline-none font-bold text-gray-600 focus:border-serenity min-w-[120px]">
+                                <option value="">所有年級</option>
+                                {Array.from(new Set(boards.flatMap(b => b.grades))).map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            {(filterSubj || filterGrade) && (
+                                <Button onClick={() => {setFilterSubj(''); setFilterGrade('');}} variant="outline" className="py-1.5 px-4 border-gray-400 text-gray-600 bg-white/50 hover:bg-gray-100">清除篩選</Button>
+                            )}
+                        </div>
+                    </Card>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        {filteredBoards.length === 0 ? (
+                            <div className="col-span-full text-center py-16 bg-white/30 rounded-2xl border border-white/40">
+                                <span className="text-4xl mb-4 block">🔍</span>
+                                <span className="text-white/90 font-bold text-lg">目前沒有符合的看板喔！</span>
+                            </div>
+                        ) : (
+                            filteredBoards.map(board => {
+                                const isExpired = board.expiryDate && new Date(board.expiryDate) < new Date();
+                                const tempName = TEMPLATES[board.templateId || 'ORID']?.name || '未知模板';
+                                return (
+                                    <Card key={board.id} className="hover:shadow-xl transition-all hover:-translate-y-1 cursor-pointer flex flex-col justify-between border-b-4 border-b-serenity group" >
+                                        <div onClick={() => { setCurrentBoard(board); setView('board'); }}>
+                                            <div className="flex justify-between items-start mb-3">
+                                                <h2 className="text-xl font-bold text-gray-800 group-hover:text-serenity transition-colors truncate max-w-[70%]" title={board.title}>{board.title}</h2>
+                                                {isExpired ? (
+                                                    <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-md font-bold whitespace-nowrap shadow-sm border border-gray-300">僅供觀看</span>
+                                                ) : (
+                                                    <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-md font-bold whitespace-nowrap shadow-sm border border-green-200">開放討論中</span>
+                                                )}
+                                            </div>
+                                            <div className="mb-3">
+                                                <span className="text-xs bg-serenity/10 text-serenity px-2 py-1 rounded-md font-bold border border-serenity/20 inline-flex items-center gap-1"><Icons.Layout /> {tempName}</span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5 mb-4">
+                                                {board.subjects.map(s => <span key={s} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100">{s}</span>)}
+                                                {board.grades.map(s => <span key={s} className="text-xs bg-pink-50 text-pink-600 px-2 py-0.5 rounded border border-pink-100">{s}</span>)}
+                                            </div>
+                                        </div>
+                                        <div className="text-right mt-auto pt-3 border-t border-gray-100">
+                                            <Button onClick={() => { setCurrentBoard(board); setView('board'); }} variant="secondary" className="w-full py-2 bg-gray-50 border border-gray-200 group-hover:bg-serenity group-hover:text-white group-hover:border-serenity transition-colors">進入看板</Button>
+                                        </div>
+                                    </Card>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const BoardView = ({ user, currentBoard, responses, setView, setCurrentBoard, magicUnlocked, setMagicUnlocked, adminPwd, setEditingTargetId, showAlert, showPrompt, saveResponse, deleteResponse, showConfirm }) => {
+            const boardResponses = responses.filter(r => r.boardId === currentBoard.id);
+            const isExpired = currentBoard.expiryDate && new Date(currentBoard.expiryDate) < new Date();
+            const myResponse = boardResponses.find(r => r.studentName === user);
+            
+            const templateId = currentBoard.templateId || 'ORID';
+            const templateConfig = TEMPLATES[templateId];
+            const fields = currentBoard.fields || templateConfig.defaultFields;
+            const getAnswers = (responseObj) => {
+                if (responseObj.answers) return responseObj.answers;
+                return { O: responseObj.O, R: responseObj.R, I: responseObj.I, D: responseObj.D };
+            };
+
+            const handleAddOrEdit = () => {
+                if (isExpired && user !== 'admin') return showAlert('此看板已截止，無法新增或編輯。');
+                setEditingTargetId(null); setView('form');
+            };
+
+            const unlockMagic = () => {
+                showPrompt('請輸入老師專用魔法密碼：', (pwd) => {
+                    if (pwd === adminPwd) { setMagicUnlocked(true); showAlert('魔法解鎖成功！您現在可以編輯任何人的留言。'); } 
+                    else { showAlert('密碼錯誤！解鎖失敗。'); }
+                }, '', 'password');
+            };
+
+            return (
+                <div className="max-w-5xl mx-auto p-4 pt-8 pb-20">
+                    <div className="flex justify-between items-center mb-6">
+                        <Button onClick={() => {setView(user === 'admin' ? 'admin' : 'dashboard'); setCurrentBoard(null);}} variant="outline" className="bg-white/50 border-white text-white hover:bg-white hover:text-serenity shadow-sm">
+                            <Icons.Home /> {user === 'admin' ? '回到後台' : '回大廳'}
+                        </Button>
+                        <h1 className="text-3xl font-bold text-white drop-shadow-md text-center flex-1 mx-4 truncate">{currentBoard.title}</h1>
+                        <div className="w-[100px]"></div>
+                    </div>
+
+                    <div className="bg-white/90 backdrop-blur rounded-2xl p-5 mb-6 flex justify-between items-center shadow-lg border-t-4 border-t-serenity">
+                        <div className="flex items-center gap-4">
+                            <span className="bg-blue-50 text-blue-800 px-3 py-1.5 rounded-lg font-bold border border-blue-100 flex items-center gap-2">
+                                👥 參與人數 <span className="bg-white px-2 py-0.5 rounded shadow-sm">{boardResponses.length}</span>
+                            </span>
+                            {isExpired && <span className="text-red-600 font-bold text-sm bg-red-100 px-3 py-1.5 rounded-lg border border-red-200">⛔ 已截止討論</span>}
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={unlockMagic} className="text-gray-400 hover:text-yellow-500 p-2 bg-gray-50 rounded-lg hover:bg-yellow-50 border border-transparent hover:border-yellow-200 transition-colors" title="呼叫老師魔法 (解鎖編輯他人權限)">
+                                <Icons.Unlock />
+                            </button>
+                            {!isExpired && (
+                                <Button onClick={handleAddOrEdit} variant="primary" className="shadow-md px-6 py-2.5">
+                                    {myResponse ? '📝 修改我的想法' : '➕ 新增我的想法'}
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-6">
+                        {boardResponses.length === 0 ? (
+                            <div className="text-center py-20 bg-white/20 rounded-2xl border-2 border-dashed border-white/50">
+                                <span className="text-5xl block mb-4">✍️</span>
+                                <span className="text-white/90 text-xl font-bold">還沒有人留言喔，趕快搶頭香！</span>
+                            </div>
+                        ) : (
+                            boardResponses.map(r => (
+                                <Card key={r.id} className="relative overflow-hidden group shadow-md hover:shadow-xl transition-shadow border border-gray-100">
+                                    {(user === 'admin' || user === r.studentName || magicUnlocked) && !isExpired && (
+                                        <div className="absolute top-4 right-4 z-10 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 p-1.5 rounded-lg shadow-sm border border-gray-200">
+                                            <Button onClick={() => { setEditingTargetId(r.id); setView('form'); }} variant="outline" className="text-xs py-1.5 px-3 bg-white">編輯</Button>
+                                            {user === 'admin' && (
+                                                <Button onClick={() => {
+                                                    showConfirm(`確定要刪除 ${r.studentName} 的這筆留言嗎？`, async () => {
+                                                        try { await deleteResponse(r.id); showAlert('留言已刪除。'); } 
+                                                        catch (err) { showAlert(`刪除失敗：${err.message}`); }
+                                                    });
+                                                }} variant="danger" className="text-xs py-1.5 px-3 shadow-sm border border-red-500">刪除</Button>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-3 mb-5 border-b-2 border-quartz pb-3">
+                                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-serenity to-blue-400 text-white flex items-center justify-center font-bold text-2xl shadow-inner">
+                                            {r.studentName.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-bold text-gray-800">{r.studentName} <span className="text-sm font-normal text-gray-500 ml-1">的想法</span></h3>
+                                            <span className="text-xs text-gray-400">{new Date(r.timestamp).toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className={`grid gap-4 ${templateConfig.layout}`}>
+                                        {fields.map(field => {
+                                            const ans = getAnswers(r)[field.id] || { level1: '', level2: '', level3: '', stage: 'raw', imageUrl: null };
+                                            if(!ans.level3 && !ans.imageUrl && user !== 'admin') return null; // 學生不顯示空欄位
+                                            return (
+                                                <div key={field.id} className={`bg-gray-50 rounded-xl p-4 border border-gray-200 shadow-sm ${templateId === 'MANDALA' && field.id === 'M5' ? 'ring-2 ring-serenity bg-blue-50/50' : ''}`}>
+                                                    <div className="flex justify-between items-start mb-3 border-b border-gray-200 pb-2">
+                                                        <span className={`font-bold px-2 py-1 rounded text-sm shadow-sm ${templateId === 'MANDALA' && field.id === 'M5' ? 'bg-serenity text-white' : 'bg-blue-100 text-blue-800 border border-blue-200'}`}>{field.title}</span>
+                                                        <button onClick={() => TTS.speak(ans.level3)} className="text-gray-400 hover:text-serenity bg-white rounded-full p-1 shadow-sm"><Icons.Speaker /></button>
+                                                    </div>
+                                                    {ans.level3 ? (
+                                                        <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">{ans.level3}</p>
+                                                    ) : (
+                                                        <p className="text-gray-400 text-sm italic">未填寫文字內容</p>
+                                                    )}
+                                                    {ans.imageUrl && (
+                                                        <div className="mt-3 text-center bg-white p-2 rounded-lg border border-gray-200 shadow-sm">
+                                                            <img src={ans.imageUrl} alt="Student uploaded" className="max-h-64 mx-auto rounded-md" />
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {user === 'admin' && ans.level1 && (
+                                                        <div className="mt-4 text-xs bg-gray-100 p-3 rounded-lg border border-gray-300">
+                                                            <div className="font-bold text-gray-700 mb-1.5 border-b border-gray-200 pb-1 flex items-center gap-1">👀 歷程分析</div>
+                                                            {!ans.stage || ans.stage === 'raw' ? (
+                                                                <div className="text-gray-500">純手動輸入 (無使用 AI)</div>
+                                                            ) : (
+                                                                <div className="space-y-1.5 mt-1">
+                                                                    <div className="text-gray-500"><span className="font-bold">1. 原始內容:</span> {ans.level1}</div>
+                                                                    <div className="text-blue-600"><span className="font-bold">2. AI {ans.stage === 'summary' ? '摘要' : '條列'}:</span> {ans.level2}</div>
+                                                                    {(ans.level2 || '').trim() !== (ans.level3 || '').trim() ? (
+                                                                        <div className="text-green-600 font-bold bg-green-50 px-2 py-1 rounded inline-block mt-1">✓ 學生有進一步手動修改 AI 內容</div>
+                                                                    ) : (
+                                                                        <div className="text-red-500 font-bold bg-red-50 px-2 py-1 rounded inline-block mt-1">⚠ 學生直接套用 AI 內容，未修改</div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* Feedback Section */}
+                                    <div className="mt-5 border-t-2 border-dashed border-gray-200 pt-4">
+                                        {user === 'admin' ? (
+                                            <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-300 shadow-inner">
+                                                <label className="block text-sm font-bold text-yellow-800 mb-2 flex items-center gap-1">
+                                                    📝 給 {r.studentName} 的回饋：
+                                                </label>
+                                                <textarea
+                                                    className="w-full p-3 border-2 border-yellow-200 rounded-lg focus:outline-none focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 bg-white text-gray-800"
+                                                    rows="2"
+                                                    defaultValue={r.feedback || ''}
+                                                    onBlur={(e) => {
+                                                        if(e.target.value !== (r.feedback || '')) {
+                                                            saveResponse({...r, feedback: e.target.value});
+                                                        }
+                                                    }}
+                                                    placeholder="輸入您對這位學生的回饋... (離開輸入框自動儲存)"
+                                                />
+                                                <div className="text-xs text-gray-400 mt-2 flex justify-between font-bold">
+                                                    <span>💡 離開輸入框即自動儲存</span>
+                                                    {r.feedback && <span className="text-green-600 bg-green-100 px-2 py-0.5 rounded">✓ 已儲存</span>}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            r.studentName === user && r.feedback && (
+                                                <div className="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-300 shadow-sm animate-fadeIn relative">
+                                                    <div className="absolute -top-3 left-4 bg-yellow-400 text-yellow-900 px-3 py-0.5 rounded-full text-xs font-bold shadow-sm border border-yellow-500">
+                                                        🌟 老師的回饋
+                                                    </div>
+                                                    <p className="text-gray-800 whitespace-pre-wrap mt-2 font-bold leading-relaxed">{r.feedback}</p>
+                                                </div>
+                                            )
+                                        )}
+                                    </div>
+                                </Card>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const FormView = ({ user, currentBoard, responses, setView, saveResponse, geminiKey, editingTargetId, setShowTutorial, showAlert }) => {
+            const [isSaving, setIsSaving] = useState(false);
+            const templateId = currentBoard.templateId || 'ORID';
+            const fields = currentBoard.fields || TEMPLATES[templateId].defaultFields;
+            
+            const initialResponse = useRef(editingTargetId 
+                ? responses.find(r => r.id === editingTargetId) 
+                : responses.find(r => r.studentName === user && r.boardId === currentBoard.id));
+
+            const defaultDim = { level1: '', level2: '', level3: '', stage: 'raw', imageUrl: null };
+            const initFormData = () => {
+                let data = {};
+                if (initialResponse.current) {
+                    const oldAns = initialResponse.current.answers || { O: initialResponse.current.O, R: initialResponse.current.R, I: initialResponse.current.I, D: initialResponse.current.D };
+                    fields.forEach(f => { data[f.id] = oldAns[f.id] || { ...defaultDim }; });
+                } else { fields.forEach(f => { data[f.id] = { ...defaultDim }; }); }
+                return data;
+            };
+
+            const [formData, setFormData] = useState(initFormData());
+            const studentNameForThisForm = initialResponse.current ? initialResponse.current.studentName : user;
+
+            const handleSave = async () => {
+                const isDimFilled = (dim) => dim && (dim.level3.trim() !== '' || !!dim.imageUrl);
+                let hasAnyData = false;
+                for (const key in formData) { if (isDimFilled(formData[key])) { hasAnyData = true; break; } }
+                if (!hasAnyData) return showAlert('請至少填寫一個欄位的內容或上傳照片喔！');
+
+                setIsSaving(true);
+                try {
+                    const payload = {
+                        ...(initialResponse.current || {}),
+                        id: initialResponse.current ? initialResponse.current.id : generateId(),
+                        boardId: currentBoard.id,
+                        studentName: studentNameForThisForm,
+                        answers: formData, 
+                        timestamp: new Date().toISOString()
+                    };
+                    await saveResponse(payload);
+                    setView('board');
+                } catch (err) { showAlert(`儲存失敗：${err.message}`); } 
+                finally { setIsSaving(false); }
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto p-4 pt-8 pb-20">
+                    <div className="flex justify-between items-center mb-6">
+                        <Button onClick={() => setView('board')} variant="outline" className="bg-white/50 border-white text-white hover:bg-white hover:text-serenity shadow-sm">
+                            取消返回
+                        </Button>
+                        <h1 className="text-2xl font-bold text-white drop-shadow-md text-center flex-1 mx-4 truncate">
+                            {initialResponse.current ? '編輯想法' : '新增想法'} - {currentBoard.title}
+                        </h1>
+                        <Button onClick={() => setShowTutorial(true)} variant="outline" className="bg-white/90 text-serenity border-white shadow-sm hover:bg-white">
+                            <Icons.Help /> 新手指南
+                        </Button>
+                    </div>
+
+                    <Card className="mb-6 shadow-2xl border-t-8 border-t-serenity">
+                        <div className="mb-6 pb-4 border-b-2 border-gray-100 flex justify-between items-center">
+                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                <span className="bg-gray-100 px-3 py-1 rounded-lg text-sm text-gray-500 border border-gray-200">作者</span> {studentNameForThisForm}
+                            </h2>
+                            {initialResponse.current && <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-sm font-bold border border-yellow-200">編輯模式</span>}
+                        </div>
+
+                        {fields.map(field => (
+                            <FieldSection key={field.id} field={field} value={formData[field.id] || { ...defaultDim }} onChange={(v) => setFormData({...formData, [field.id]: v})} apiKey={geminiKey} showAlert={showAlert} />
+                        ))}
+                        
+                        <div className="mt-8 text-center pt-6 border-t border-gray-100">
+                            <Button onClick={handleSave} disabled={isSaving} className="w-full max-w-md mx-auto py-4 text-xl shadow-xl hover:shadow-2xl transform hover:-translate-y-1">
+                                {isSaving ? '💾 儲存中，請稍候...' : '🚀 送出我的討論單'}
+                            </Button>
+                        </div>
+                    </Card>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // Voice Settings Sub-Component
+        // ==========================================
+        const VoiceSettings = () => {
+            const [voices, setVoices] = useState([]);
+            const [selectedURI, setSelectedURI] = useState(TTS.voiceURI);
+            const [dict, setDict] = useState(TTS.dict);
+            const [newWord, setNewWord] = useState('');
+            const [newPron, setNewPron] = useState('');
+
+            useEffect(() => {
+                const loadVoices = () => {
+                    const availableVoices = window.speechSynthesis.getVoices();
+                    if (availableVoices.length > 0) setVoices(availableVoices);
+                };
+                loadVoices();
+                window.speechSynthesis.onvoiceschanged = loadVoices;
+            }, []);
+
+            const handleAddDict = () => {
+                if (!newWord.trim() || !newPron.trim()) return;
+                const newDict = { ...dict, [newWord.trim()]: newPron.trim() };
+                setDict(newDict); TTS.setDict(newDict);
+                setNewWord(''); setNewPron('');
+            };
+
+            const handleDeleteDict = (word) => {
+                const newDict = { ...dict };
+                delete newDict[word];
+                setDict(newDict); TTS.setDict(newDict);
+            };
+
+            return (
+                <div className="bg-[#FFF8E7] p-5">
+                    <h3 className="font-bold flex items-center gap-2 mb-4 text-gray-800 text-lg border-b border-orange-200 pb-2">
+                        <Icons.Speaker /> TTS 語音與發音校正設定
+                    </h3>
+                    
+                    <div className="flex flex-col md:flex-row items-center gap-4 mb-6">
+                        <label className="text-sm font-bold text-gray-700 shrink-0">1. 選擇語音包：</label>
+                        <select className="flex-1 w-full p-2.5 border-2 border-orange-200 rounded-lg bg-white text-sm focus:border-orange-400 outline-none" value={selectedURI} onChange={(e) => {setSelectedURI(e.target.value); TTS.setVoice(e.target.value);}}>
+                            <option value="">預設語音 (系統自動判斷)</option>
+                            {voices.map(v => ( <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option> ))}
+                        </select>
+                        <button onClick={() => TTS.speak('這是語音測試，很高興認識你！和諧的社會需要大家一起努力。')} className="bg-orange-400 hover:bg-orange-500 text-white font-bold rounded-lg px-5 py-2.5 text-sm flex items-center gap-2 shadow-md shrink-0 transition">
+                            <Icons.Speaker /> 試聽
+                        </button>
+                    </div>
+
+                    <div className="border-t border-dashed border-orange-300 pt-4">
+                        <label className="text-sm font-bold text-gray-700 mb-3 block">2. 發音校正字典 (解決破音字，例如: 和 ➔ 汗)</label>
+                        <div className="flex flex-wrap gap-2 mb-4 bg-white/50 p-3 rounded-lg border border-orange-100 min-h-[50px]">
+                            {Object.entries(dict).length === 0 && <span className="text-xs text-gray-400 py-1">目前沒有自訂校正詞彙</span>}
+                            {Object.entries(dict).map(([word, pron]) => (
+                                <span key={word} className="inline-flex items-center gap-1 bg-white text-gray-800 px-3 py-1 rounded-full text-sm font-bold border-2 border-orange-200 shadow-sm">
+                                    {word} ➔ <span className="text-orange-600">{pron}</span>
+                                    <button onClick={() => handleDeleteDict(word)} className="text-gray-300 hover:text-red-500 hover:bg-red-50 w-5 h-5 rounded-full flex items-center justify-center ml-1 transition-colors">x</button>
+                                </span>
+                            ))}
+                        </div>
+                        <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-orange-200 shadow-sm">
+                            <input type="text" placeholder="原本的字 (例: 和)" value={newWord} onChange={e => setNewWord(e.target.value)} className="flex-1 p-2 border-2 border-gray-200 rounded-lg text-sm text-center focus:border-orange-400 outline-none font-bold" />
+                            <span className="font-bold text-orange-400">➔</span>
+                            <input type="text" placeholder="怎麼唸 (例: 汗)" value={newPron} onChange={e => setNewPron(e.target.value)} className="flex-1 p-2 border-2 border-gray-200 rounded-lg text-sm text-center focus:border-orange-400 outline-none font-bold" />
+                            <Button onClick={handleAddDict} className="bg-orange-500 hover:bg-orange-600 border-none shrink-0 px-6">新增</Button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // Admin View Main Component
+        // ==========================================
+        const AdminView = ({ boards, responses, saveBoard, deleteBoard, saveResponse, setView, setCurrentBoard, setUser, adminPwd, setAdminPwd, fbConfigStr, setFbConfigStr, fbDb, geminiKey, setGeminiKey, tutorialData, saveTutorial, showAlert, showConfirm }) => {
+            const [activeTab, setActiveTab] = useState('boards'); 
+            const [editingBoard, setEditingBoard] = useState(null);
+            
+            // Tutorial State
+            const parsedTutData = typeof tutorialData === 'string' ? JSON.parse(tutorialData) : tutorialData;
+            if (parsedTutData.steps) parsedTutData.steps = parsedTutData.steps.map(step => ({ ...step, visible: step.visible !== false }));
+            const [tutForm, setTutForm] = useState(parsedTutData);
+            const [loadingAiTut, setLoadingAiTut] = useState(false);
+            
+            // Board Creation State
+            const [selectedTemplate, setSelectedTemplate] = useState('ORID');
+            const [boardFields, setBoardFields] = useState(TEMPLATES['ORID'].defaultFields);
+            const [customFieldsCount, setCustomFieldsCount] = useState(1);
+            const [selectedExportBoards, setSelectedExportBoards] = useState(new Set());
+            const [newSubj, setNewSubj] = useState('');
+            const [newGrade, setNewGrade] = useState('');
+            
+            // Modals & Dialogs State
+            const [showTeacherGuide, setShowTeacherGuide] = useState(false);
+            const [showImportGuide, setShowImportGuide] = useState(false);
+            const [importFile, setImportFile] = useState(null); // {file, type}
+            const [showImportDialog, setShowImportDialog] = useState(false);
+
+            useEffect(() => {
+                if (!localStorage.getItem('hasSeenTeacherGuide')) { setShowTeacherGuide(true); localStorage.setItem('hasSeenTeacherGuide', 'true'); }
+                if (!localStorage.getItem('hasSeenImportGuide')) { setShowImportGuide(true); localStorage.setItem('hasSeenImportGuide', 'true'); }
+            }, []);
+
+            useEffect(() => { 
+                const parsed = typeof tutorialData === 'string' ? JSON.parse(tutorialData) : tutorialData;
+                if (parsed.steps) parsed.steps = parsed.steps.map(step => ({ ...step, visible: step.visible !== false }));
+                setTutForm(parsed); 
+            }, [tutorialData]);
+
+            useEffect(() => {
+                if (editingBoard) {
+                    const tempId = editingBoard.templateId || 'ORID';
+                    setSelectedTemplate(tempId);
+                    setBoardFields(editingBoard.fields || TEMPLATES[tempId].defaultFields);
+                    if (tempId === 'CUSTOM') setCustomFieldsCount(editingBoard.fields?.length || 1);
+                } else {
+                    setSelectedTemplate('ORID');
+                    setBoardFields(TEMPLATES['ORID'].defaultFields);
+                    setCustomFieldsCount(1);
+                }
+            }, [editingBoard]);
+
+            const handleTemplateChange = (e) => {
+                const tempId = e.target.value;
+                setSelectedTemplate(tempId);
+                if (tempId === 'CUSTOM') handleCustomFieldsCountChange({ target: { value: customFieldsCount } });
+                else setBoardFields(JSON.parse(JSON.stringify(TEMPLATES[tempId].defaultFields)));
+            };
+
+            const handleCustomFieldsCountChange = (e) => {
+                const count = parseInt(e.target.value, 10);
+                setCustomFieldsCount(count);
+                const newFields = [];
+                for (let i = 1; i <= count; i++) {
+                    const existingField = boardFields.find(f => f.id === `C${i}`);
+                    if (existingField) newFields.push(existingField);
+                    else newFields.push({ id: `C${i}`, title: `自訂欄位 ${i}`, guide: '請輸入引導語...' });
+                }
+                setBoardFields(newFields);
+            };
+
+            const handleFieldChange = (id, key, value) => {
+                setBoardFields(boardFields.map(f => f.id === id ? { ...f, [key]: value } : f));
+            };
+
+            const handleApplyDifficulty = () => {
+                const diff = document.querySelector('[name="difficulty"]').value;
+                const style = document.querySelector('[name="style"]').value;
+                if (PROMPTS_CONFIG[selectedTemplate]) {
+                    const prompts = PROMPTS_CONFIG[selectedTemplate][diff][style];
+                    const newFields = boardFields.map(f => ({ ...f, guide: prompts[f.id] || f.guide }));
+                    setBoardFields(newFields);
+                    showAlert(`已套用 ${selectedTemplate} 的 ${diff}-${style} 預設引導語！`);
+                } else {
+                    showAlert('這個模板目前沒有內建的難度引導語喔！請自訂。');
+                }
+            };
+
+            const handleSaveBoardForm = async (e) => {
+                e.preventDefault();
+                const fd = new FormData(e.target);
+                const subjects = fd.getAll('subjects');
+                const grades = fd.getAll('grades');
+                if(subjects.length === 0 || grades.length === 0) return showAlert('請至少選擇一個科目與年級');
+                if (boardFields.some(f => !f.title.trim() || !f.guide.trim())) return showAlert('請確保所有欄位的「標題」與「引導語」都已填寫。');
+
+                const finalSubjects = [...subjects];
+                if (fd.get('otherSubjCheckbox') && newSubj.trim()) finalSubjects.push(newSubj.trim());
+                
+                const finalGrades = [...grades];
+                if (fd.get('otherGradeCheckbox') && newGrade.trim()) finalGrades.push(newGrade.trim());
+
+                const newBoard = {
+                    id: editingBoard?.id || generateId(),
+                    title: fd.get('title'),
+                    templateId: selectedTemplate,
+                    fields: boardFields,
+                    subjects: finalSubjects,
+                    grades: finalGrades,
+                    difficulty: fd.get('difficulty') || '簡單', 
+                    style: fd.get('style') || '一般',         
+                    expiryDate: fd.get('expiryDate') || null
+                };
+                
+                try {
+                    await saveBoard(newBoard);
+                    setEditingBoard(null); setActiveTab('boards');
+                } catch (err) { showAlert(`看板儲存失敗：${err.message}`); }
+            };
+
+            const escapeCsv = (str) => !str ? '""' : `"${str.toString().replace(/"/g, '""')}"`;
+
+            const getBoardsToExport = () => {
+                return selectedExportBoards.size > 0 ? boards.filter(b => selectedExportBoards.has(b.id)) : boards;
+            };
+
+            const exportCsv = () => {
+                const boardsToExport = getBoardsToExport();
+                if (boardsToExport.length === 0) return showAlert("沒有可匯出的看板資料！");
+                let csvContent = '\uFEFF主題,科目(以|分隔),適用年級(以|分隔),引導難度,語氣風格,學生姓名,內容1,內容2,內容3,內容4,留言時間,老師回饋\n';
+                boardsToExport.forEach(b => {
+                    const bResps = responses.filter(r => r.boardId === b.id);
+                    if (bResps.length === 0) csvContent += `${escapeCsv(b.title)},${escapeCsv(b.subjects.join('|'))},${escapeCsv(b.grades.join('|'))},${escapeCsv(b.difficulty)},${escapeCsv(b.style)},"","","","","","",""\n`;
+                    else bResps.forEach(r => {
+                        const ans = r.answers || { O: r.O, R: r.R, I: r.I, D: r.D };
+                        let texts = ['', '', '', ''];
+                        if (b.templateId && b.templateId !== 'ORID') texts[0] = (b.fields || []).map(f => `[${f.title}] ${ans[f.id]?.level3 || ''}`).join('\n');
+                        else { texts[0]=ans.O?.level3||''; texts[1]=ans.R?.level3||''; texts[2]=ans.I?.level3||''; texts[3]=ans.D?.level3||''; }
+                        csvContent += `${escapeCsv(b.title)},${escapeCsv(b.subjects.join('|'))},${escapeCsv(b.grades.join('|'))},${escapeCsv(b.difficulty)},${escapeCsv(b.style)},${escapeCsv(r.studentName)},${escapeCsv(texts[0])},${escapeCsv(texts[1])},${escapeCsv(texts[2])},${escapeCsv(texts[3])},${escapeCsv(r.timestamp)},${escapeCsv(r.feedback)}\n`;
+                    });
+                });
+                downloadFile(csvContent, 'csv', '歷史看板資料');
+            };
+
+            const exportTxt = () => {
+                const boardsToExport = getBoardsToExport();
+                if (boardsToExport.length === 0) return showAlert("沒有可匯出的看板資料！");
+                let content = '';
+                boardsToExport.forEach(b => {
+                    content += `====================================\n主題：${b.title}\n科目：${b.subjects.join(', ')}\n年級：${b.grades.join(', ')}\n====================================\n\n`;
+                    const bResps = responses.filter(r => r.boardId === b.id);
+                    bResps.forEach(r => {
+                        content += `學生：${r.studentName}\n`;
+                        const ans = r.answers || { O: r.O, R: r.R, I: r.I, D: r.D };
+                        (b.fields || TEMPLATES['ORID'].defaultFields).forEach(f => { content += `[${f.title}] ${ans[f.id]?.level3 || ''}\n`; });
+                        if (r.feedback) content += `[老師回饋] ${r.feedback}\n`;
+                        content += `------------------------------------\n`;
+                    }); content += `\n`;
+                });
+                downloadFile(content, 'txt', '看板資料保存');
+            };
+
+            const exportJson = () => {
+                const boardsToExport = getBoardsToExport();
+                if (boardsToExport.length === 0) return showAlert("沒有可匯出的看板資料！");
+                const responsesToExport = selectedExportBoards.size > 0 ? responses.filter(r => selectedExportBoards.has(r.boardId)) : responses;
+                const data = { boards: boardsToExport, responses: responsesToExport };
+                downloadFile(JSON.stringify(data, null, 2), 'json', '系統備份');
+            };
+
+            const downloadFile = (content, ext, suffix) => {
+                const blob = new Blob([content], { type: ext === 'json' ? 'application/json' : `text/${ext};charset=utf-8` });
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                a.download = `想法討論板_${suffix}_${new Date().toLocaleDateString()}.${ext}`;
+                a.click();
+            };
+
+            const triggerImport = (e, type) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                setImportFile({ file, type });
+                setShowImportDialog(true);
+                e.target.value = ''; // Reset input
+            };
+
+            const handleImportModeSelect = async (mode) => {
+                setShowImportDialog(false);
+                if (!importFile) return;
+                const { file, type } = importFile;
+                setImportFile(null);
+
+                try {
+                    const text = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = e => resolve(e.target.result);
+                        reader.onerror = e => reject(e);
+                        reader.readAsText(file);
+                    });
+
+                    if (mode === 'overwrite') {
+                        if (fbDb) { showAlert("雲端連線模式下為保護資料安全，不允許使用「完全覆蓋」。請改用「合併資料」，若需清空請至 Firebase 控制台操作。"); return; }
+                        boards.forEach(b => deleteBoard(b.id)); responses.forEach(r => deleteResponse(r.id));
+                    }
+
+                    if (type === 'json') {
+                        const data = JSON.parse(text);
+                        for (const b of (data.boards || [])) await saveBoard(b);
+                        if (mode !== 'boards_only') for (const r of (data.responses || [])) await saveResponse(r);
+                        showAlert(`✅ JSON ${mode === 'boards_only' ? '看板模板' : '系統備份'} 匯入成功！`);
+                    } else if (type === 'csv') {
+                        const rows = parseCSV(text);
+                        if (rows.length < 2) throw new Error("CSV 沒有有效資料！");
+                        for (let i = 1; i < rows.length; i++) {
+                            const r = rows[i]; if (r.length < 5) continue;
+                            const title = r[0], subjectsStr = r[1], gradesStr = r[2], difficulty = r[3], style = r[4], studentName = r[5], ts = r[10];
+                            if (!title) continue;
+                            let board = boards.find(b => b.title === title);
+                            if (!board) {
+                                board = { id: generateId(), title, templateId: 'ORID', fields: TEMPLATES['ORID'].defaultFields, subjects: subjectsStr ? subjectsStr.split('|') : ['自訂'], grades: gradesStr ? gradesStr.split('|') : ['未指定'], difficulty: difficulty || '簡單', style: style || '一般', expiryDate: null };
+                                await saveBoard(board); boards.push(board);
+                            }
+                            if (mode !== 'boards_only' && studentName) {
+                                const mkDim = (val) => ({ level1: val || '', level2: val || '', level3: val || '', stage: 'raw' });
+                                await saveResponse({ id: generateId(), boardId: board.id, studentName, answers: { O: mkDim(r[6]), R: mkDim(r[7]), I: mkDim(r[8]), D: mkDim(r[9]) }, timestamp: ts || new Date().toISOString() });
+                            }
+                        }
+                        showAlert(`✅ CSV ${mode === 'boards_only' ? '看板設定' : '歷史資料'} 匯入成功！`);
+                    }
+                } catch (err) { showAlert("匯入失敗：" + err.message); }
+            };
+
+            const generateTutorialWithAI = async () => {
+                if (!geminiKey) return showAlert("請先設定 AI 金鑰才能使用此功能！");
+                setLoadingAiTut(true);
+                try {
+                    const prompt = `請幫我為「想法討論板」生成一份專屬給國小學生的新手指南。請以嚴格的 JSON 格式輸出，不要有 markdown 標記。格式如下：\n{ "intro": "開場白...", "steps": [ { "visible": true, "color": "blue", "title": "步驟一、...", "text": "說明內容..." } ] }\n注意：color 只能填 "blue", "pink", "yellow", "green"。請撰寫 4~6 個步驟。在 text 中若提到相關功能，請精準使用代碼標示以轉為圖示：[觀看]、[新增我的想法]、[修改我的想法]、[麥克風]、[相機]、[魔法摘要]、[轉成條列重點]、[送出我的討論單]。`;
+                    const result = await callGeminiText(prompt, geminiKey);
+                    const parsed = JSON.parse(result.replace(/```json/gi, '').replace(/```/g, '').trim());
+                    if (parsed.intro && parsed.steps) { setTutForm(parsed); showAlert("✅ AI 已成功生成新版指南！請手動點擊「儲存指南內容」套用。"); } 
+                    else throw new Error("AI 回傳格式不符。");
+                } catch (err) { showAlert("AI 生成失敗：" + err.message); }
+                setLoadingAiTut(false);
+            };
+
+            return (
+                <div className="max-w-6xl mx-auto p-4 pt-8 pb-20">
+                    {showTeacherGuide && <TeacherTemplateGuideModal onClose={() => setShowTeacherGuide(false)} />}
+                    {showImportGuide && <ImportGuideModal onClose={() => setShowImportGuide(false)} />}
+                    <ImportOptionsDialog isOpen={showImportDialog} onClose={() => setShowImportDialog(false)} onSelectMode={handleImportModeSelect} />
+                    
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                        <h1 className="text-3xl font-bold text-white drop-shadow-md flex items-center gap-2">
+                            <Icons.Settings /> 教師後台管理中心
+                        </h1>
+                        <div className="flex flex-wrap gap-2">
+                            <Button onClick={() => setShowImportGuide(true)} variant="outline" className="bg-white/50 text-white border-white hover:bg-white hover:text-serenity shadow-sm">
+                                檔案匯入指南
+                            </Button>
+                            <Button onClick={() => setShowTeacherGuide(true)} variant="outline" className="bg-white/50 text-white border-white hover:bg-white hover:text-serenity shadow-sm">
+                                <Icons.Layout /> 模板介紹
+                            </Button>
+                            <Button onClick={() => {setUser(null); setView('login');}} variant="outline" className="bg-white text-gray-800 border-none shadow-md font-bold">登出後台</Button>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-3 mb-6 overflow-x-auto pb-2 custom-scrollbar">
+                        <Button onClick={() => setActiveTab('boards')} variant={activeTab === 'boards' ? 'primary' : 'secondary'} className="flex-1 py-3.5 shadow-md whitespace-nowrap min-w-[180px] border-none text-lg">📁 看板與資料管理</Button>
+                        <Button onClick={() => {setActiveTab('edit_board'); setEditingBoard(null);}} variant={activeTab === 'edit_board' ? 'primary' : 'secondary'} className="flex-1 py-3.5 shadow-md whitespace-nowrap min-w-[180px] border-none text-lg">➕ {editingBoard ? '編輯目前看板' : '建立新看板'}</Button>
+                        <Button onClick={() => setActiveTab('settings')} variant={activeTab === 'settings' ? 'primary' : 'secondary'} className="flex-1 py-3.5 shadow-md whitespace-nowrap min-w-[180px] border-none text-lg">⚙️ 系統與功能設定</Button>
+                    </div>
+
+                    {/* SETTINGS TAB */}
+                    {activeTab === 'settings' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeIn">
+                            <Card className="md:col-span-2 p-0 overflow-hidden border-2 border-orange-200 shadow-lg">
+                                <VoiceSettings />
+                            </Card>
+
+                            <Card className="md:col-span-2 border-t-4 border-t-serenity shadow-lg">
+                                <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-3">
+                                    <h2 className="text-xl font-bold text-serenity flex items-center gap-2"><Icons.Help /> 新手指南結構化編輯區</h2>
+                                    <Button onClick={generateTutorialWithAI} variant="outline" className="text-xs py-1.5 px-3 border-gray-300 text-gray-600 font-bold" disabled={loadingAiTut}>
+                                        {loadingAiTut ? "🤖 AI 寫作中..." : "🤖 請 AI 幫我寫"}
+                                    </Button>
+                                </div>
+                                <p className="text-sm text-gray-600 mb-4 font-bold">自訂學生登入時看到的新手說明。您只需修改文字，系統會保留漂亮的彩色排版。</p>
+                                
+                                <div className="bg-blue-50/50 border border-blue-200 p-4 rounded-xl text-sm mb-6 shadow-sm">
+                                    <p className="font-bold mb-2 flex items-center gap-2 text-blue-800"><Icons.Magic /> 魔法圖示代碼小技巧：</p>
+                                    <p className="mb-2 text-gray-700">在下方的文字中輸入以下代碼（包含中括號），前台的新手指南就會自動轉換成漂亮的彩色按鈕！</p>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 text-xs">
+                                        <div className="bg-white p-2 rounded border border-blue-100 flex items-center gap-2 shadow-sm"><code>[麥克風]</code> ➔ <ParsedText text="[麥克風]" /></div>
+                                        <div className="bg-white p-2 rounded border border-blue-100 flex items-center gap-2 shadow-sm"><code>[相機]</code> ➔ <ParsedText text="[相機]" /></div>
+                                        <div className="bg-white p-2 rounded border border-blue-100 flex items-center gap-2 shadow-sm"><code>[魔法摘要]</code> ➔ <ParsedText text="[魔法摘要]" /></div>
+                                        <div className="bg-white p-2 rounded border border-blue-100 flex items-center gap-2 shadow-sm"><code>[轉成條列重點]</code> ➔ <ParsedText text="[轉成條列重點]" /></div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-5">
+                                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">開場白：</label>
+                                        <textarea className="w-full p-3 border-2 border-gray-200 rounded-lg outline-none focus:border-serenity bg-white text-gray-800" value={tutForm.intro} onChange={e => setTutForm({...tutForm, intro: e.target.value})} rows="2" />
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {tutForm.steps.map((step, idx) => (
+                                            <div key={idx} className={`p-4 rounded-xl border-2 transition-all ${step.visible === false ? 'bg-gray-100 border-gray-200 opacity-60' : 'bg-white border-blue-100 shadow-sm'}`}>
+                                                <div className="flex flex-wrap gap-3 mb-3 items-center">
+                                                    <label className="flex items-center gap-1.5 text-sm font-bold cursor-pointer bg-white px-2 py-1 rounded shadow-sm border border-gray-200" title="打勾表示要在前端顯示此步驟">
+                                                        <input type="checkbox" checked={step.visible !== false} onChange={e => {const n=[...tutForm.steps]; n[idx].visible=e.target.checked; setTutForm({...tutForm, steps: n});}} className="w-4 h-4 text-serenity rounded focus:ring-serenity" />
+                                                        顯示
+                                                    </label>
+                                                    <select className="text-xs font-bold border-2 border-gray-200 rounded-lg p-1.5 bg-gray-50 outline-none focus:border-serenity" value={step.color} onChange={e => {const n=[...tutForm.steps]; n[idx].color=e.target.value; setTutForm({...tutForm, steps: n});}} disabled={step.visible === false}>
+                                                        <option value="blue">藍色</option><option value="pink">粉色</option><option value="yellow">黃色</option><option value="green">綠色</option>
+                                                    </select>
+                                                    <input type="text" className="flex-1 font-bold p-1.5 border-b-2 border-gray-200 bg-transparent outline-none focus:border-serenity text-gray-800" value={step.title} onChange={e => {const n=[...tutForm.steps]; n[idx].title=e.target.value; setTutForm({...tutForm, steps: n});}} disabled={step.visible === false} placeholder="步驟標題" />
+                                                </div>
+                                                <textarea className="w-full p-3 border-2 border-gray-200 rounded-lg bg-gray-50 text-sm focus:border-serenity focus:bg-white outline-none resize-y" value={step.text} onChange={e => {const n=[...tutForm.steps]; n[idx].text=e.target.value; setTutForm({...tutForm, steps: n});}} rows="3" disabled={step.visible === false} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 justify-end mt-6 pt-5 border-t border-gray-200">
+                                    <Button onClick={() => { setTutForm(DEFAULT_TUTORIAL_DATA); saveTutorial(JSON.stringify(DEFAULT_TUTORIAL_DATA)); }} variant="outline" className="px-6 border-2 font-bold text-gray-500 border-gray-300 hover:bg-gray-100 hover:text-gray-700">恢復預設</Button>
+                                    <Button onClick={() => saveTutorial(JSON.stringify(tutForm))} className="px-8 shadow-md font-bold text-lg">💾 儲存指南內容</Button>
+                                </div>
+                            </Card>
+
+                            <Card className="border-t-4 border-t-green-400 shadow-lg">
+                                <h2 className="text-xl font-bold text-green-700 mb-4 border-b border-green-100 pb-2">Firebase 雲端同步設定 (免費)</h2>
+                                <p className="text-sm text-gray-600 mb-4 font-bold">貼上 firebaseConfig 即可開啟跨裝置即時同步。留空則使用單機離線模式。</p>
+                                <textarea className="w-full p-3 rounded-lg bg-gray-900 text-green-400 border-none font-mono text-xs h-32 mb-4 shadow-inner outline-none focus:ring-2 focus:ring-green-400" placeholder={`{\n  apiKey: "...",\n  authDomain: "...",\n  projectId: "...",\n  ...\n}`} value={fbConfigStr} onChange={e => setFbConfigStr(e.target.value)} />
+                                <Button onClick={() => { localStorage.setItem('fbConfig', fbConfigStr); window.location.reload(); }} className="w-full bg-green-500 hover:bg-green-600 shadow-md">儲存並重新連線</Button>
+                                {fbDb ? <div className="mt-4 bg-green-50 border border-green-200 text-green-700 p-2 rounded-lg text-center font-bold shadow-sm">🟢 目前已連線至雲端資料庫</div> : <div className="mt-4 bg-yellow-50 border border-yellow-200 text-yellow-700 p-2 rounded-lg text-center font-bold shadow-sm">🟡 目前為單機離線模式</div>}
+                            </Card>
+
+                            <Card className="flex flex-col border-t-4 border-t-blue-400 shadow-lg">
+                                <h2 className="text-xl font-bold text-blue-700 mb-4 border-b border-blue-100 pb-2">AI 魔法設定 & 後台密碼</h2>
+                                <div className="mb-6 flex-1">
+                                    <p className="text-sm text-gray-600 mb-2 font-bold">1. Google Gemini API Key (啟用魔法摘要功能)</p>
+                                    <input type="text" className="w-full p-3 rounded-lg bg-gray-50 border-2 border-gray-200 text-sm font-mono mb-2 focus:border-blue-400 outline-none" placeholder="AIzaSy..." value={geminiKey} onChange={e => { setGeminiKey(e.target.value); localStorage.setItem('geminiKey', e.target.value); }} />
+                                    <p className="text-xs text-gray-400 font-bold">系統自動儲存，即刻生效。申請與使用皆免費。</p>
+                                </div>
+                                <div className="mt-auto bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                    <p className="text-sm text-gray-600 mb-3 font-bold flex items-center gap-2">2. 後台登入與魔法密碼 <span className="bg-blue-100 text-blue-800 font-mono px-2 py-0.5 rounded shadow-sm">目前: {adminPwd}</span></p>
+                                    <div className="flex items-center gap-3">
+                                        <input type="password" className="p-3 rounded-lg border-2 border-gray-200 w-full focus:border-blue-400 outline-none font-bold bg-white" placeholder="輸入新密碼" id="newPwdInput" />
+                                        <Button onClick={() => {
+                                            const v = document.getElementById('newPwdInput').value;
+                                            if(v) { setAdminPwd(v); localStorage.setItem('adminPwd', v); showAlert('密碼已更新！'); document.getElementById('newPwdInput').value = ''; }
+                                        }} className="whitespace-nowrap px-6 shadow-sm">更新密碼</Button>
+                                    </div>
+                                </div>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* EDIT BOARD TAB */}
+                    {activeTab === 'edit_board' && (
+                        <div className="max-w-4xl mx-auto animate-fadeIn">
+                            <Card className="h-full border-t-8 border-t-serenity shadow-2xl">
+                                <div className="flex justify-between items-center mb-6 border-b border-gray-200 pb-4">
+                                    <h2 className="text-2xl font-bold text-serenity flex items-center gap-3">
+                                        {editingBoard ? <><span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-lg text-sm border border-yellow-200 shadow-sm">編輯模式</span> 編輯看板</> : <><Icons.Layout /> 新增看板</>}
+                                    </h2>
+                                    <button onClick={() => setShowTeacherGuide(true)} type="button" className="text-sm text-serenity hover:text-blue-700 font-bold bg-blue-50 px-4 py-2 rounded-xl border border-blue-200 hover:bg-blue-100 transition-colors shadow-sm flex items-center gap-2">
+                                        <Icons.Help /> 看板模板圖文介紹
+                                    </button>
+                                </div>
+                                
+                                <form onSubmit={handleSaveBoardForm} className="space-y-6">
+                                    <div className="bg-blue-50 p-5 rounded-2xl border-2 border-blue-200 shadow-sm">
+                                        <label className="block text-lg font-bold mb-3 text-blue-900 flex items-center gap-2">1. 選擇看版模板模式</label>
+                                        <select value={selectedTemplate} onChange={handleTemplateChange} className="w-full p-4 border-2 border-blue-300 rounded-xl font-bold text-blue-900 outline-none focus:border-serenity focus:ring-2 focus:ring-blue-100 bg-white shadow-inner text-lg">
+                                            {Object.values(TEMPLATES).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                        </select>
+                                        <p className="text-sm text-blue-700 mt-3 font-bold bg-white/60 p-3 rounded-lg">{TEMPLATES[selectedTemplate].description}</p>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-gray-50 p-5 rounded-2xl border border-gray-200 shadow-sm">
+                                        <div className="md:col-span-2">
+                                            <label className="block text-base font-bold mb-2 text-gray-700">2. 看板標題主題</label>
+                                            <input name="title" required defaultValue={editingBoard?.title} className="w-full p-4 border-2 border-gray-300 rounded-xl focus:border-serenity outline-none font-bold text-lg shadow-inner bg-white" placeholder="例如：戶外教學心得、人生二周目反思..." />
+                                        </div>
+                                        
+                                        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                                            <label className="block text-sm font-bold mb-3 text-gray-700 border-b pb-2">科目 (可多選)</label>
+                                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                                {SUBJECTS.map(s => (
+                                                    <label key={s} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1.5 rounded-lg font-bold text-gray-600">
+                                                        <input type="checkbox" name="subjects" value={s} defaultChecked={editingBoard?.subjects.includes(s)} className="w-4 h-4 text-serenity focus:ring-serenity rounded border-gray-300" /> {s}
+                                                    </label>
+                                                ))}
+                                                <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg font-bold text-gray-600 col-span-2 mt-1 border-t border-dashed border-gray-200 pt-2">
+                                                    <input type="checkbox" name="otherSubjCheckbox" className="w-4 h-4 text-serenity focus:ring-serenity rounded border-gray-300" /> 其他：
+                                                    <input type="text" value={newSubj} onChange={e=>setNewSubj(e.target.value)} className="flex-1 border-b-2 border-gray-300 bg-transparent px-2 py-1 outline-none focus:border-serenity" placeholder="自訂科目"/>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                                            <label className="block text-sm font-bold mb-3 text-gray-700 border-b pb-2">適用年級 (可多選)</label>
+                                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                                {GRADES.map(s => (
+                                                    <label key={s} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1.5 rounded-lg font-bold text-gray-600">
+                                                        <input type="checkbox" name="grades" value={s} defaultChecked={editingBoard?.grades.includes(s)} className="w-4 h-4 text-serenity focus:ring-serenity rounded border-gray-300" /> {s}
+                                                    </label>
+                                                ))}
+                                                <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg font-bold text-gray-600 col-span-2 mt-1 border-t border-dashed border-gray-200 pt-2">
+                                                    <input type="checkbox" name="otherGradeCheckbox" className="w-4 h-4 text-serenity focus:ring-serenity rounded border-gray-300" /> 其他：
+                                                    <input type="text" value={newGrade} onChange={e=>setNewGrade(e.target.value)} className="flex-1 border-b-2 border-gray-300 bg-transparent px-2 py-1 outline-none focus:border-serenity" placeholder="自訂年級"/>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div className={`md:col-span-2 grid grid-cols-2 gap-4 bg-orange-50 p-4 rounded-xl border border-orange-200 ${selectedTemplate !== 'CUSTOM' ? 'block' : 'hidden'}`}>
+                                            <div className="col-span-2 mb-1"><span className="font-bold text-orange-800 text-sm bg-orange-100 px-3 py-1 rounded-lg">✨ 快速預設引導語</span></div>
+                                            <div>
+                                                <label className="block text-sm font-bold mb-2 text-orange-800">引導難度</label>
+                                                <select name="difficulty" defaultValue={editingBoard?.difficulty || '簡單'} className="w-full p-3 border-2 border-orange-200 rounded-lg bg-white outline-none focus:border-orange-400 font-bold text-gray-700">
+                                                    <option value="簡單">簡單 (低年級)</option>
+                                                    <option value="中等">中等 (中年級)</option>
+                                                    <option value="困難">困難 (高年級)</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-bold mb-2 text-orange-800">語氣風格</label>
+                                                <div className="flex gap-2">
+                                                    <select name="style" defaultValue={editingBoard?.style || '一般'} className="flex-1 p-3 border-2 border-orange-200 rounded-lg bg-white outline-none focus:border-orange-400 font-bold text-gray-700">
+                                                        <option value="一般">一般 (正向)</option>
+                                                        <option value="有趣">有趣 (活潑)</option>
+                                                    </select>
+                                                    <Button type="button" onClick={handleApplyDifficulty} className="px-5 font-bold whitespace-nowrap bg-orange-500 hover:bg-orange-600 border-none shadow-md">套用</Button>
+                                                </div>
+                                            </div>
+                                            <div className="col-span-2 text-xs text-orange-600 font-bold">💡 選定難度與風格後，點擊「套用」按鈕，即可自動將下方的引導語替換為符合該設定的句子！</div>
+                                        </div>
+
+                                        {selectedTemplate === 'CUSTOM' && (
+                                            <div className="md:col-span-2 p-5 bg-pink-50 border-2 border-pink-200 rounded-xl shadow-sm">
+                                                <label className="block text-base font-bold mb-3 text-pink-800 flex items-center gap-2">⚙️ 設定學生填寫欄位數量 (1~9格)</label>
+                                                <select value={customFieldsCount} onChange={handleCustomFieldsCountChange} className="w-full p-3 border-2 border-pink-300 rounded-lg outline-none focus:ring-2 focus:ring-pink-100 bg-white font-bold text-pink-900 text-lg shadow-inner">
+                                                    {[1,2,3,4,5,6,7,8,9].map(n => <option key={n} value={n}>{n} 個欄位</option>)}
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="p-5 bg-gray-50 rounded-2xl border border-gray-200 shadow-sm">
+                                        <h3 className="font-bold text-gray-800 mb-4 text-lg flex items-center justify-between border-b-2 border-gray-200 pb-3">
+                                            <span>3. 自訂各欄位標題與引導語 (決定學生看到的題目)</span>
+                                        </h3>
+                                        <div className="grid grid-cols-1 gap-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                            {boardFields.map((field, idx) => (
+                                                <div key={field.id} className="bg-white p-5 rounded-xl border-2 border-gray-100 shadow-sm relative pl-14 transition-all hover:border-serenity group">
+                                                    <div className="absolute left-4 top-5 bg-serenity text-white rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold shadow-md group-hover:scale-110 transition-transform">{idx+1}</div>
+                                                    <div className="space-y-4">
+                                                        <div>
+                                                            <label className="block text-sm font-bold text-gray-600 mb-2">短標題 (顯示在框框上方)</label>
+                                                            <input type="text" value={field.title} onChange={(e) => handleFieldChange(field.id, 'title', e.target.value)} className="w-full p-3 border-2 border-gray-200 rounded-lg text-base font-bold text-gray-800 bg-gray-50 focus:bg-white focus:border-serenity outline-none transition-colors" required />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-sm font-bold text-gray-600 mb-2 flex justify-between">
+                                                                <span>引導說明 (指導學生這格要寫什麼)</span>
+                                                                <button type="button" onClick={() => TTS.speak(field.guide)} className="text-gray-400 hover:text-serenity bg-gray-100 hover:bg-blue-50 px-2 py-1 rounded font-normal flex items-center gap-1 text-xs transition-colors"><Icons.Speaker /> 試聽唸法</button>
+                                                            </label>
+                                                            <textarea value={field.guide} onChange={(e) => handleFieldChange(field.id, 'guide', e.target.value)} className="w-full p-3 border-2 border-gray-200 rounded-lg text-sm min-h-[80px] text-gray-700 bg-gray-50 focus:bg-white focus:border-serenity outline-none resize-y transition-colors leading-relaxed" required />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-purple-50 p-5 rounded-2xl border border-purple-200 shadow-sm">
+                                        <label className="block text-base font-bold mb-3 text-purple-900 flex items-center gap-2">4. 有效期限設定 (選填)</label>
+                                        <input type="date" name="expiryDate" defaultValue={editingBoard?.expiryDate} className="w-full p-4 border-2 border-purple-300 rounded-xl text-lg font-bold focus:border-purple-500 outline-none bg-white text-purple-800 shadow-inner" />
+                                        <p className="text-sm text-purple-700 mt-3 font-bold bg-white/60 p-3 rounded-lg">💡 留空表示永久開放編輯。若設定日期，過期後學生僅能觀看無法修改。</p>
+                                    </div>
+
+                                    <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t-2 border-gray-200">
+                                        <Button type="button" onClick={()=>{ setEditingBoard(null); setSelectedTemplate('ORID'); setBoardFields(TEMPLATES['ORID'].defaultFields); setActiveTab('boards'); }} variant="outline" className="sm:w-1/3 py-4 font-bold border-2 text-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 border-gray-300">
+                                            取消返回
+                                        </Button>
+                                        <Button type="submit" className="sm:w-2/3 py-4 text-xl shadow-xl transform hover:-translate-y-1">
+                                            {editingBoard ? '💾 儲存所有修改' : '✨ 立即建立新看板'}
+                                        </Button>
+                                    </div>
+                                </form>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* BOARDS TAB */}
+                    {activeTab === 'boards' && (
+                        <div className="space-y-6 animate-fadeIn">
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                {/* Left Col: Export/Import Tools */}
+                                <div className="lg:col-span-1 space-y-5">
+                                    <Card className="border-t-4 border-t-serenity shadow-lg">
+                                        <h2 className="text-xl font-bold text-serenity mb-4 border-b border-gray-200 pb-2">📂 資料匯出與匯入工具</h2>
+                                        
+                                        <div className="mb-5 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                            <div className="text-sm font-bold text-gray-800 mb-3 flex justify-between items-center border-b border-gray-200 pb-2">
+                                                <span>☑️ 選擇要匯出的看板：</span>
+                                                <button onClick={() => setSelectedExportBoards(new Set())} className="text-xs text-blue-600 hover:text-blue-800 underline bg-blue-50 px-2 py-1 rounded">清除選取</button>
+                                            </div>
+                                            <div className="max-h-40 overflow-y-auto custom-scrollbar pr-2 space-y-1.5">
+                                                {boards.length === 0 ? (
+                                                    <p className="text-sm text-gray-400 text-center py-4 font-bold">目前無任何看板資料</p>
+                                                ) : (
+                                                    boards.map(b => (
+                                                        <label key={b.id} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-white p-2 rounded-lg border border-transparent hover:border-gray-200 transition-colors">
+                                                            <input type="checkbox" checked={selectedExportBoards.has(b.id)} onChange={(e) => { const newSet = new Set(selectedExportBoards); if (e.target.checked) newSet.add(b.id); else newSet.delete(b.id); setSelectedExportBoards(newSet); }} className="w-4 h-4 rounded text-serenity focus:ring-serenity border-gray-300" />
+                                                            <span className="truncate font-bold text-gray-700">{b.title}</span>
+                                                        </label>
+                                                    ))
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-3 font-bold bg-white p-2 rounded text-center">※ 若未勾選，將預設匯出「所有」資料。</p>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            {/* TXT */}
+                                            <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
+                                                <Button onClick={exportTxt} variant="outline" className="w-full text-sm py-2.5 font-bold border-2 bg-white">📄 匯出純文字 (TXT)</Button>
+                                            </div>
+
+                                            {/* CSV */}
+                                            <div className="bg-green-50 p-4 rounded-xl border border-green-200">
+                                                <h3 className="text-sm font-bold text-green-800 mb-3 flex items-center gap-1 border-b border-green-200 pb-2">📊 CSV 試算表格式 (歷史資料)</h3>
+                                                <div className="flex flex-col gap-2.5">
+                                                    <Button onClick={exportCsv} variant="secondary" className="w-full text-sm py-2.5 bg-white text-green-700 hover:bg-green-100 border-2 border-green-300">匯出 CSV</Button>
+                                                    <label className="w-full flex items-center justify-center px-4 py-2.5 rounded-xl font-bold bg-green-600 text-white cursor-pointer hover:bg-green-700 text-sm shadow-md transition-colors transform active:scale-95">
+                                                        匯入 CSV <input type="file" accept=".csv" onChange={e=>triggerImport(e,'csv')} className="hidden" />
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            {/* JSON */}
+                                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                                                <h3 className="text-sm font-bold text-blue-800 mb-3 flex items-center gap-1 border-b border-blue-200 pb-2">📦 JSON 系統備份格式 (完整還原)</h3>
+                                                <div className="flex flex-col gap-2.5">
+                                                    <Button onClick={exportJson} variant="secondary" className="w-full text-sm py-2.5 bg-white text-blue-700 hover:bg-blue-100 border-2 border-blue-300">匯出系統備份</Button>
+                                                    <label className="w-full flex items-center justify-center px-4 py-2.5 rounded-xl font-bold bg-blue-600 text-white cursor-pointer hover:bg-blue-700 text-sm shadow-md transition-colors transform active:scale-95">
+                                                        匯入系統備份 <input type="file" accept=".json" onChange={e=>triggerImport(e,'json')} className="hidden" />
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </Card>
+                                </div>
+                                
+                                {/* Right Col: Board List */}
+                                <div className="lg:col-span-2">
+                                    <Card className="shadow-xl h-full border-t-8 border-t-serenity">
+                                        <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-3">
+                                            <h2 className="text-xl font-bold text-serenity flex items-center gap-2">
+                                                <Icons.List /> 已建立的看板列表
+                                            </h2>
+                                            <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-lg font-bold text-sm shadow-sm border border-gray-200">總計：{boards.length} 個</span>
+                                        </div>
+                                        <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
+                                            <table className="w-full text-left text-sm whitespace-nowrap">
+                                                <thead>
+                                                    <tr className="bg-gray-100 text-gray-700">
+                                                        <th className="p-4 font-bold border-b border-gray-200">看板主題</th>
+                                                        <th className="p-4 font-bold border-b border-gray-200">模板與狀態</th>
+                                                        <th className="p-4 font-bold border-b border-gray-200">適用科目/年級</th>
+                                                        <th className="p-4 font-bold border-b border-gray-200 text-center">資料統計</th>
+                                                        <th className="p-4 font-bold border-b border-gray-200 text-center">快速操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="bg-white divide-y divide-gray-100">
+                                                    {boards.map(b => {
+                                                        const count = responses.filter(r => r.boardId === b.id).length;
+                                                        const expired = b.expiryDate && new Date(b.expiryDate) < new Date();
+                                                        const tempName = TEMPLATES[b.templateId || 'ORID']?.name || '未知';
+                                                        return (
+                                                            <tr key={b.id} className="hover:bg-blue-50/50 transition-colors group">
+                                                                <td className="p-4">
+                                                                    <div className="font-bold text-gray-800 max-w-[200px] truncate text-base mb-1" title={b.title}>{b.title}</div>
+                                                                    <div className="text-xs text-gray-400 font-mono">ID: {b.id.substring(0,6)}...</div>
+                                                                </td>
+                                                                <td className="p-4 space-y-2">
+                                                                    <div><span className="bg-blue-50 text-blue-700 border border-blue-200 rounded-md px-2 py-0.5 text-xs font-bold shadow-sm">{tempName}</span></div>
+                                                                    <div>{expired ? <span className="text-red-600 font-bold text-xs bg-red-50 border border-red-200 px-2 py-0.5 rounded-md shadow-sm">已截止</span> : <span className="text-green-700 font-bold text-xs bg-green-50 border border-green-200 px-2 py-0.5 rounded-md shadow-sm">開放中</span>}</div>
+                                                                </td>
+                                                                <td className="p-4">
+                                                                    <div className="text-xs text-gray-600 mb-1 max-w-[150px] truncate" title={b.subjects.join(', ')}>📚 {b.subjects.join(', ')}</div>
+                                                                    <div className="text-xs text-gray-600 max-w-[150px] truncate" title={b.grades.join(', ')}>🎓 {b.grades.join(', ')}</div>
+                                                                </td>
+                                                                <td className="p-4 text-center">
+                                                                    <div className="inline-flex items-center justify-center bg-gray-50 border border-gray-200 w-10 h-10 rounded-xl text-lg font-bold text-serenity shadow-inner">{count}</div>
+                                                                </td>
+                                                                <td className="p-4">
+                                                                    <div className="flex gap-2 justify-center opacity-70 group-hover:opacity-100 transition-opacity">
+                                                                        <button onClick={() => { setCurrentBoard(b); setView('board'); }} className="text-blue-700 bg-blue-50 hover:bg-blue-600 hover:text-white font-bold px-3 py-2 rounded-lg transition-colors border border-blue-200 shadow-sm whitespace-nowrap text-xs">進入</button>
+                                                                        <button onClick={() => { setEditingBoard(b); setActiveTab('edit_board'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-yellow-700 bg-yellow-50 hover:bg-yellow-500 hover:text-white font-bold px-3 py-2 rounded-lg transition-colors border border-yellow-200 shadow-sm whitespace-nowrap text-xs">設定</button>
+                                                                        <button onClick={() => { showConfirm(`確定刪除「${b.title}」及所有留言？`, async () => { try { await deleteBoard(b.id); } catch (err) { showAlert(err.message); } }); }} className="text-red-600 bg-red-50 hover:bg-red-500 hover:text-white px-3 py-2 rounded-lg transition-colors border border-red-200 shadow-sm" title="刪除"><Icons.Trash /></button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                    {boards.length === 0 && <tr><td colSpan="5" className="text-center py-16 text-gray-400 font-bold text-lg bg-gray-50/50">沒有任何看板資料，請點擊上方「新增看板」。</td></tr>}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </Card>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ==========================================
+        // Main App Component Root
+        // ==========================================
+        const App = () => {
+            const [user, setUser] = useState(null); 
+            const [view, setView] = useState('login'); 
+            const [currentBoard, setCurrentBoard] = useState(null);
+            
+            const [boards, setBoards] = useState([]);
+            const [responses, setResponses] = useState([]);
+            
+            const [showTutorial, setShowTutorial] = useState(false);
+            const [magicUnlocked, setMagicUnlocked] = useState(false);
+            const [editingTargetId, setEditingTargetId] = useState(null);
+            
+            const [adminPwd, setAdminPwd] = useState(localStorage.getItem('adminPwd') || DEFAULT_PWD);
+            const [fbConfigStr, setFbConfigStr] = useState(localStorage.getItem('fbConfig') || '');
+            const [geminiKey, setGeminiKey] = useState(localStorage.getItem('geminiKey') || '');
+            const [tutorialData, setTutorialData] = useState(localStorage.getItem('offlineTutorial') || JSON.stringify(DEFAULT_TUTORIAL_DATA));
+            
+            const [fbDb, setFbDb] = useState(null);
+            const [dialogData, setDialogData] = useState(null);
+
+            const showAlert = (message) => setDialogData({ type: 'alert', message });
+            const showConfirm = (message, onConfirm) => setDialogData({ type: 'confirm', message, onConfirm });
+            const showPrompt = (message, onConfirm, defaultValue = '', inputType = 'text') => setDialogData({ type: 'prompt', message, onConfirm, defaultValue, inputType });
+
+            useEffect(() => {
+                const initFirebase = async () => {
+                    if (fbConfigStr) {
+                        try {
+                            let cleanStr = fbConfigStr.trim();
+                            const match = cleanStr.match(/\{([\s\S]*)\}/);
+                            cleanStr = match ? '{' + match[1] + '}' : '{' + cleanStr + '}';
+                            let config;
+                            try { config = JSON.parse(cleanStr); } catch (e) { config = new Function("return " + cleanStr)(); }
+                            if (!config || !config.apiKey) throw new Error("設定檔內找不到 apiKey");
+
+                            if (!firebase.apps.length) firebase.initializeApp(config);
+                            await firebase.auth().signInAnonymously();
+                            setFbDb(firebase.firestore());
+                        } catch (e) {
+                            setFbDb(null);
+                            let errorMsg = e.message;
+                            if (e.code === 'auth/configuration-not-found' || e.code === 'auth/operation-not-allowed') errorMsg = "您忘記在 Firebase 控制台開啟「匿名登入」功能了！";
+                            showAlert("Firebase 連線設定錯誤，已切回單機模式。\n\n錯誤：" + errorMsg);
+                        }
+                    } else {
+                        setFbDb(null);
+                        setBoards(JSON.parse(localStorage.getItem('offlineBoards') || '[]'));
+                        setResponses(JSON.parse(localStorage.getItem('offlineResponses') || '[]'));
+                        setTutorialData(localStorage.getItem('offlineTutorial') || JSON.stringify(DEFAULT_TUTORIAL_DATA));
+                    }
+                };
+                initFirebase();
+            }, [fbConfigStr]);
+
+            useEffect(() => {
+                if (!fbDb) return;
+                const bsRef = fbDb.collection('artifacts').doc(APP_ID).collection('public_data').doc('orid_app').collection('boards');
+                const unsubB = bsRef.onSnapshot(snap => { const b = snap.docs.map(d => ({ id: d.id, ...d.data() })); setBoards(b); localStorage.setItem('offlineBoards', JSON.stringify(b)); });
+                
+                const rsRef = fbDb.collection('artifacts').doc(APP_ID).collection('public_data').doc('orid_app').collection('responses');
+                const unsubR = rsRef.onSnapshot(snap => { const r = snap.docs.map(d => ({ id: d.id, ...d.data() })); setResponses(r); localStorage.setItem('offlineResponses', JSON.stringify(r)); });
+
+                const setRef = fbDb.collection('artifacts').doc(APP_ID).collection('public_data').doc('orid_app').collection('settings').doc('global');
+                const unsubS = setRef.onSnapshot(doc => { if (doc.exists && doc.data().tutorialText) { setTutorialData(doc.data().tutorialText); localStorage.setItem('offlineTutorial', doc.data().tutorialText); } });
+
+                return () => { unsubB(); unsubR(); unsubS(); };
+            }, [fbDb]);
+
+            const saveBoard = async (boardData) => {
+                if (!boardData.id) boardData.id = generateId();
+                if (fbDb) await withTimeout(fbDb.collection('artifacts').doc(APP_ID).collection('public_data').doc('orid_app').collection('boards').doc(boardData.id).set(boardData, { merge: true }));
+                else { const nb = [...boards]; const i = nb.findIndex(b => b.id === boardData.id); if (i >= 0) nb[i] = boardData; else nb.push(boardData); setBoards(nb); localStorage.setItem('offlineBoards', JSON.stringify(nb)); }
+            };
+
+            const deleteBoard = async (id) => {
+                if (fbDb) await withTimeout(fbDb.collection('artifacts').doc(APP_ID).collection('public_data').doc('orid_app').collection('boards').doc(id).delete());
+                else { const nb = boards.filter(b => b.id !== id); setBoards(nb); localStorage.setItem('offlineBoards', JSON.stringify(nb)); }
+            };
+
+            const saveResponse = async (responseData) => {
+                if (!responseData.id) responseData.id = generateId(); 
+                if (fbDb) await withTimeout(fbDb.collection('artifacts').doc(APP_ID).collection('public_data').doc('orid_app').collection('responses').doc(responseData.id).set(responseData, { merge: true }));
+                else { const nr = [...responses]; const i = nr.findIndex(r => r.id === responseData.id); if (i >= 0) nr[i] = responseData; else nr.push(responseData); setResponses(nr); localStorage.setItem('offlineResponses', JSON.stringify(nr)); }
+            };
+
+            const deleteResponse = async (id) => {
+                if (fbDb) await withTimeout(fbDb.collection('artifacts').doc(APP_ID).collection('public_data').doc('orid_app').collection('responses').doc(id).delete());
+                else { const nr = responses.filter(r => r.id !== id); setResponses(nr); localStorage.setItem('offlineResponses', JSON.stringify(nr)); }
+            };
+
+            const saveTutorial = async (jsonStr) => {
+                if (fbDb) await withTimeout(fbDb.collection('artifacts').doc(APP_ID).collection('public_data').doc('orid_app').collection('settings').doc('global').set({ tutorialText: jsonStr }, { merge: true }));
+                else { localStorage.setItem('offlineTutorial', jsonStr); setTutorialData(jsonStr); }
+                showAlert('新手指南內容已成功更新！');
+            };
+
+            return (
+                <React.Fragment>
+                    <CustomDialog dialog={dialogData} onClose={() => setDialogData(null)} />
+                    {showTutorial && <TutorialModal onClose={() => setShowTutorial(false)} user={user} tutorialData={tutorialData} />}
+                    {(!user) ? <LoginView setUser={setUser} setView={setView} setShowTutorial={setShowTutorial} adminPwd={adminPwd} showAlert={showAlert} /> :
+                     (view === 'admin') ? <AdminView boards={boards} responses={responses} saveBoard={saveBoard} saveResponse={saveResponse} deleteBoard={deleteBoard} setView={setView} setCurrentBoard={setCurrentBoard} setUser={setUser} adminPwd={adminPwd} setAdminPwd={setAdminPwd} fbConfigStr={fbConfigStr} setFbConfigStr={setFbConfigStr} fbDb={fbDb} geminiKey={geminiKey} setGeminiKey={setGeminiKey} tutorialData={tutorialData} saveTutorial={saveTutorial} showAlert={showAlert} showConfirm={showConfirm} /> :
+                     (view === 'dashboard') ? <DashboardView user={user} boards={boards} setCurrentBoard={setCurrentBoard} setView={setView} setShowTutorial={setShowTutorial} setUser={setUser} setMagicUnlocked={setMagicUnlocked} /> :
+                     (view === 'board' && currentBoard) ? <BoardView user={user} currentBoard={currentBoard} responses={responses} setView={setView} setCurrentBoard={setCurrentBoard} magicUnlocked={magicUnlocked} setMagicUnlocked={setMagicUnlocked} adminPwd={adminPwd} setEditingTargetId={setEditingTargetId} showAlert={showAlert} showPrompt={showPrompt} saveResponse={saveResponse} deleteResponse={deleteResponse} showConfirm={showConfirm} /> :
+                     (view === 'form' && currentBoard) ? <FormView user={user} currentBoard={currentBoard} responses={responses} setView={setView} saveResponse={saveResponse} geminiKey={geminiKey} editingTargetId={editingTargetId} setShowTutorial={setShowTutorial} showAlert={showAlert} /> :
+                     <LoginView setUser={setUser} setView={setView} setShowTutorial={setShowTutorial} adminPwd={adminPwd} showAlert={showAlert} />}
+                </React.Fragment>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
